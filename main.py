@@ -25,7 +25,7 @@ class Floppy(discord.Client):
         self._status_task: asyncio.Task | None = None
 
     async def setup_hook(self):
-        self._status_task = self.loop.create_task(self._cycle_status())
+        self._status_task = asyncio.create_task(self._cycle_status())
 
     async def close(self):
         if self._status_task and not self._status_task.done():
@@ -38,14 +38,35 @@ class Floppy(discord.Client):
 
     async def _cycle_status(self):
         await self.wait_until_ready()
-        while not self.is_closed():
-            await self.change_presence(
-                activity=discord.CustomActivity(name=next(self._status_cycle))
-            )
-            await asyncio.sleep(STATUS_INTERVAL)
+
+        while True:
+            try:
+                if not self.is_closed():
+                    await self.change_presence(
+                        activity=discord.CustomActivity(
+                            name=next(self._status_cycle)
+                        )
+                    )
+                await asyncio.sleep(STATUS_INTERVAL)
+
+            except asyncio.CancelledError:
+                break
+
+            except Exception as e:
+                print(f"⚠️ Status task error: {e}")
+                await asyncio.sleep(10)  # prevent tight crash loop
 
     async def on_ready(self):
         print(f"✅ Logged in as {self.user}")
+
+    async def on_disconnect(self):
+        print("⚠️ Disconnected from Discord...")
+
+    async def on_resumed(self):
+        print("🔄 Connection resumed!")
+
+    async def on_connect(self):
+        print("🌐 Connected to Discord gateway")
 
 
 def main():
@@ -57,7 +78,9 @@ def main():
     intents.message_content = True
 
     floppy = Floppy(intents=intents)
-    floppy.run(token)
+
+    # reconnect=True is default, but being explicit is nice
+    floppy.run(token, reconnect=True)
 
 
 if __name__ == "__main__":
