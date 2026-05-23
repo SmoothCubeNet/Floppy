@@ -2,6 +2,7 @@ import os
 import discord
 from discord.ext import tasks
 from itertools import cycle
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import state
 import config
@@ -13,9 +14,25 @@ STATUSES = cycle([
     "🔌 poking the API", "🔍 searching messages", "📋 reading logs"
 ])
 
+def embed(color: int, title: str, description: str = None, fields: list = None, footer: str = None) -> discord.Embed:
+    e = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now(timezone.utc))
+    if fields:
+        for name, value, inline in fields:
+            e.add_field(name=name, value=value, inline=inline)
+    if footer:
+        e.set_footer(text=footer)
+    return e
+
+GREEN  = 0x43b581
+RED    = 0xf04747
+YELLOW = 0xfaa61a
+BLUE   = 0x5865f2
+GREY   = 0x949ba4
+
 class Floppy(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.invite_cache: dict[str, int] = {}
 
     async def setup_hook(self):
         self.cycle_status.start()
@@ -31,121 +48,249 @@ class Floppy(discord.Client):
     async def on_ready(self):
         state.bot_ready = True
         state.bot = self
+        # cache invites for all guilds
+        for guild in self.guilds:
+            try:
+                invites = await guild.fetch_invites()
+                self.invite_cache[guild.id] = {inv.code: inv.uses for inv in invites}
+            except Exception:
+                pass
         print(f"✅ {self.user} is online")
 
     async def on_disconnect(self):
         state.bot_ready = False
 
-    async def log(self, message: str):
+    async def log(self, guild: discord.Guild, emb: discord.Embed):
         cfg = config.load()
         channel_id = cfg.get("audit_log_channel")
         if not channel_id:
             return
-        channel = self.get_channel(int(channel_id))
+        channel = guild.get_channel(int(channel_id))
         if channel:
-            await channel.send(message)
+            try:
+                await channel.send(embed=emb)
+            except Exception:
+                pass
 
-    # --- Welcome / Goodbye / Join Role ---
+    # ── Welcome / Goodbye / Join Role ────────────────────────────────────────
 
     async def on_member_join(self, member: discord.Member):
+        if member.bot:
+            return
         cfg = config.load()
+
+        # Figure out which invite was used
+        used_invite = None
+        try:
+            new_invites = await member.guild.fetch_invites()
+            new_map = {inv.code: inv.uses for inv in new_invites}
+            old_map = self.invite_cache.get(member.guild.id, {})
+            for code, uses in new_map.items():
+                if uses > old_map.get(code, 0):
+                    used_invite = next((i for i in new_invites if i.code == code), None)
+                    break
+            self.invite_cache[member.guild.id] = new_map
+        except Exception:
+            pass
 
         # Assign join role
         role_id = cfg.get("join_role")
         if role_id:
             role = member.guild.get_role(int(role_id))
             if role:
-                await member.add_roles(role, reason="Auto join role")
+                try:
+                    await member.add_roles(role, reason="Auto join role")
+                except Exception:
+                    pass
 
         # Welcome message
         channel_id = cfg.get("welcome_channel")
         if channel_id:
-            channel = self.get_channel(int(channel_id))
+            channel = member.guild.get_channel(int(channel_id))
             if channel:
-                msg = cfg.get("welcome_message", DEFAULTS["welcome_message"])
-                await channel.send(msg.format(
-                    mention=member.mention,
-                    name=str(member),
-                    server=member.guild.name
-                ))
+                msg = cfg.get("welcome_message", "Welcome {mention} to {server}! 🎉")
+                text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
+                invite_text = f"Invited by **{used_invite.inviter}** (`{used_invite.code}`)" if used_invite and used_invite.inviter else ""
+                e = discord.Embed(
+                    title=f"👋 Welcome to {member.guild.name}!",
+                    description=text,
+                    color=GREEN,
+                    timestamp=datetime.now(timezone.utc)
+                )
+                e.set_thumbnail(url=member.display_avatar.url)
+                e.add_field(name="Account Created", value=f"<t:{int(member.created_at.timestamp())}:R>", inline=True)
+                e.add_field(name="Member #", value=str(member.guild.member_count), inline=True)
+                if invite_text:
+                    e.add_field(name="Invite", value=invite_text, inline=False)
+                e.set_footer(text=f"ID: {member.id}")
+                await channel.send(embed=e)
 
-        await self.log(f"📥 **{member}** joined the server.")
+        # Audit log
+        await self.log(member.guild, embed(GREEN, "📥 Member Joined", fields=[
+            ("Member", f"{member.mention} ({member})", True),
+            ("Account Age", f"<t:{int(member.created_at.timestamp())}:R>", True),
+            ("Member #", str(member.guild.member_count), True),
+        ], footer=f"ID: {member.id}"))
 
     async def on_member_remove(self, member: discord.Member):
+        if member.bot:
+            return
         cfg = config.load()
 
         channel_id = cfg.get("goodbye_channel")
         if channel_id:
-            channel = self.get_channel(int(channel_id))
+            channel = member.guild.get_channel(int(channel_id))
             if channel:
-                msg = cfg.get("goodbye_message", DEFAULTS["goodbye_message"])
-                await channel.send(msg.format(
-                    mention=member.mention,
-                    name=str(member),
-                    server=member.guild.name
-                ))
+                msg = cfg.get("goodbye_message", "Goodbye {mention}, we'll miss you! 👋")
+                text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
+                e = discord.Embed(
+                    title="👋 See you later!",
+                    description=text,
+                    color=RED,
+                    timestamp=datetime.now(timezone.utc)
+                )
+                e.set_thumbnail(url=member.display_avatar.url)
+                roles = [r.mention for r in member.roles if r.name != "@everyone"]
+                if roles:
+                    e.add_field(name="Roles", value=" ".join(roles), inline=False)
+                e.set_footer(text=f"ID: {member.id}")
+                await channel.send(embed=e)
 
-        await self.log(f"📤 **{member}** left the server.")
+        await self.log(member.guild, embed(RED, "📤 Member Left", fields=[
+            ("Member", f"{member} ({member.id})", False),
+        ], footer=f"ID: {member.id}"))
 
-    # --- Audit Log Events ---
+    # ── Audit Log Events ─────────────────────────────────────────────────────
 
     async def on_message_delete(self, message: discord.Message):
-        if message.author.bot:
+        if message.author.bot or not message.guild:
             return
-        await self.log(
-            f"🗑️ Message by **{message.author}** deleted in {message.channel.mention}:\n> {message.content}"
-        )
+        fields = [
+            ("Author", f"{message.author.mention} ({message.author})", True),
+            ("Channel", message.channel.mention, True),
+        ]
+        if message.content:
+            fields.append(("Content", message.content[:1024], False))
+        if message.attachments:
+            fields.append(("Attachments", "\n".join(a.filename for a in message.attachments), False))
+        await self.log(message.guild, embed(RED, "🗑️ Message Deleted", fields=fields, footer=f"Author ID: {message.author.id}"))
 
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        if before.author.bot or before.content == after.content:
+        if before.author.bot or not before.guild or before.content == after.content:
             return
-        await self.log(
-            f"✏️ Message by **{before.author}** edited in {before.channel.mention}:\n"
-            f"> **Before:** {before.content}\n"
-            f"> **After:** {after.content}"
-        )
+        await self.log(before.guild, embed(YELLOW, "✏️ Message Edited", fields=[
+            ("Author", f"{before.author.mention} ({before.author})", True),
+            ("Channel", before.channel.mention, True),
+            ("Jump", f"[Go to message]({after.jump_url})", True),
+            ("Before", before.content[:1024] or "*empty*", False),
+            ("After", after.content[:1024] or "*empty*", False),
+        ], footer=f"Author ID: {before.author.id}"))
 
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if before.roles != after.roles:
             added = [r for r in after.roles if r not in before.roles]
             removed = [r for r in before.roles if r not in after.roles]
+            fields = []
             if added:
-                await self.log(f"🔖 **{after}** was given roles: {', '.join(r.name for r in added)}")
+                fields.append(("Roles Added", " ".join(r.mention for r in added), False))
             if removed:
-                await self.log(f"🔖 **{after}** had roles removed: {', '.join(r.name for r in removed)}")
+                fields.append(("Roles Removed", " ".join(r.mention for r in removed), False))
+            fields.append(("Member", f"{after.mention} ({after})", True))
+            await self.log(after.guild, embed(BLUE, "🔖 Roles Updated", fields=fields, footer=f"ID: {after.id}"))
+
         if before.nick != after.nick:
-            await self.log(f"📝 **{after}** changed nickname: `{before.nick}` → `{after.nick}`")
+            await self.log(after.guild, embed(YELLOW, "📝 Nickname Changed", fields=[
+                ("Member", f"{after.mention} ({after})", True),
+                ("Before", before.nick or "*none*", True),
+                ("After", after.nick or "*none*", True),
+            ], footer=f"ID: {after.id}"))
 
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
-        await self.log(f"🔨 **{user}** was banned from the server.")
+        await self.log(guild, embed(RED, "🔨 Member Banned", fields=[
+            ("User", f"{user.mention} ({user})", True),
+        ], footer=f"ID: {user.id}"))
 
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
-        await self.log(f"✅ **{user}** was unbanned from the server.")
+        await self.log(guild, embed(GREEN, "✅ Member Unbanned", fields=[
+            ("User", f"{user.mention} ({user})", True),
+        ], footer=f"ID: {user.id}"))
 
     async def on_guild_channel_create(self, channel):
-        await self.log(f"📢 Channel **#{channel.name}** was created.")
+        await self.log(channel.guild, embed(GREEN, "📢 Channel Created", fields=[
+            ("Name", f"#{channel.name}", True),
+            ("Type", str(channel.type), True),
+        ]))
 
     async def on_guild_channel_delete(self, channel):
-        await self.log(f"🗑️ Channel **#{channel.name}** was deleted.")
+        await self.log(channel.guild, embed(RED, "🗑️ Channel Deleted", fields=[
+            ("Name", f"#{channel.name}", True),
+            ("Type", str(channel.type), True),
+        ]))
 
     async def on_guild_channel_update(self, before, after):
         if before.name != after.name:
-            await self.log(f"📢 Channel **#{before.name}** renamed to **#{after.name}**.")
+            await self.log(after.guild, embed(YELLOW, "📢 Channel Renamed", fields=[
+                ("Before", f"#{before.name}", True),
+                ("After", f"#{after.name}", True),
+            ]))
 
     async def on_guild_role_create(self, role: discord.Role):
-        await self.log(f"🔖 Role **{role.name}** was created.")
+        await self.log(role.guild, embed(GREEN, "🔖 Role Created", fields=[
+            ("Name", role.name, True),
+        ]))
 
     async def on_guild_role_delete(self, role: discord.Role):
-        await self.log(f"🔖 Role **{role.name}** was deleted.")
+        await self.log(role.guild, embed(RED, "🔖 Role Deleted", fields=[
+            ("Name", role.name, True),
+        ]))
 
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
         if before.name != after.name:
-            await self.log(f"🔖 Role **{before.name}** renamed to **{after.name}**.")
+            await self.log(after.guild, embed(YELLOW, "🔖 Role Renamed", fields=[
+                ("Before", before.name, True),
+                ("After", after.name, True),
+            ]))
 
-DEFAULTS = {
-    "welcome_message": "Welcome {mention} to {server}!",
-    "goodbye_message": "Goodbye {name}, we'll miss you!",
-}
+    async def on_invite_create(self, invite: discord.Invite):
+        if invite.guild:
+            cache = self.invite_cache.get(invite.guild.id, {})
+            cache[invite.code] = invite.uses or 0
+            self.invite_cache[invite.guild.id] = cache
+        await self.log(invite.guild, embed(GREEN, "🔗 Invite Created", fields=[
+            ("Code", invite.code, True),
+            ("Created By", str(invite.inviter), True),
+            ("Max Uses", str(invite.max_uses) if invite.max_uses else "∞", True),
+        ]))
+
+    async def on_invite_delete(self, invite: discord.Invite):
+        if invite.guild:
+            cache = self.invite_cache.get(invite.guild.id, {})
+            cache.pop(invite.code, None)
+            self.invite_cache[invite.guild.id] = cache
+        await self.log(invite.guild, embed(RED, "🔗 Invite Deleted", fields=[
+            ("Code", invite.code, True),
+        ]))
+
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        if member.bot:
+            return
+        if before.channel is None and after.channel is not None:
+            await self.log(member.guild, embed(GREEN, "🎙️ Joined Voice", fields=[
+                ("Member", f"{member.mention} ({member})", True),
+                ("Channel", after.channel.name, True),
+            ], footer=f"ID: {member.id}"))
+        elif before.channel is not None and after.channel is None:
+            await self.log(member.guild, embed(RED, "🎙️ Left Voice", fields=[
+                ("Member", f"{member.mention} ({member})", True),
+                ("Channel", before.channel.name, True),
+            ], footer=f"ID: {member.id}"))
+        elif before.channel != after.channel:
+            await self.log(member.guild, embed(YELLOW, "🎙️ Switched Voice", fields=[
+                ("Member", f"{member.mention} ({member})", True),
+                ("From", before.channel.name, True),
+                ("To", after.channel.name, True),
+            ], footer=f"ID: {member.id}"))
+
 
 def get_bot():
     token = os.getenv("TOKEN")
@@ -156,4 +301,6 @@ def get_bot():
     intents.message_content = True
     intents.members = True
     intents.moderation = True
+    intents.invites = True
+    intents.voice_states = True
     return Floppy(intents=intents), token
