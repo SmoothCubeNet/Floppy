@@ -3,9 +3,10 @@ import discord
 from discord.ext import tasks
 from itertools import cycle
 from dotenv import load_dotenv
+import state
 
-# Config
 load_dotenv()
+
 STATUSES = cycle([
     "🫧 floating around", "🐟 flopping about", "🗄️ peeking at the db",
     "🔌 poking the API", "🔍 searching messages", "📋 reading logs"
@@ -27,14 +28,17 @@ class Floppy(discord.Client):
         await self.wait_until_ready()
 
     async def on_ready(self):
+        state.bot_ready = True
         print(f"✅ {self.user} is online")
 
-if __name__ == "__main__":
+    async def on_disconnect(self):
+        state.bot_ready = False
+
+def get_bot():
     token = os.getenv("TOKEN")
     if not token:
         exit("Error: TOKEN missing from .env")
-        
+
     intents = discord.Intents.default()
     intents.message_content = True
-    
-    Floppy(intents=intents).run(token)
+    return Floppy(intents=intents), token
