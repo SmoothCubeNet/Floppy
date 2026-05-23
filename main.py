@@ -51,6 +51,7 @@ class Floppy(discord.Client):
     async def on_ready(self):
         state.bot_ready = True
         state.bot = self
+        state.add_log(f"Bot online as {self.user}")
 
         # Cache invites
         for guild in self.guilds:
@@ -62,11 +63,13 @@ class Floppy(discord.Client):
 
         # Post ticket panel (replaces old one)
         await post_ticket_panel(self)
+        state.add_log("Ticket panel posted")
 
         print(f"✅ {self.user} is online")
 
     async def on_disconnect(self):
         state.bot_ready = False
+        state.add_log("Bot disconnected")
 
     async def log(self, guild: discord.Guild, emb: discord.Embed):
         cfg = config.load()
@@ -125,6 +128,7 @@ class Floppy(discord.Client):
                 e.set_footer(text=f"ID: {member.id}")
                 await channel.send(embed=e)
 
+        state.add_log(f"Member joined: {member}")
         await self.log(member.guild, make_embed(GREEN, "📥 Member Joined", fields=[
             ("Member", f"{member.mention} ({member})", True),
             ("Account Age", f"<t:{int(member.created_at.timestamp())}:R>", True),
@@ -150,6 +154,7 @@ class Floppy(discord.Client):
                 e.set_footer(text=f"ID: {member.id}")
                 await channel.send(embed=e)
 
+        state.add_log(f"Member left: {member}")
         await self.log(member.guild, make_embed(RED, "📤 Member Left", fields=[
             ("Member", f"{member} ({member.id})", False),
         ], footer=f"ID: {member.id}"))
@@ -196,6 +201,7 @@ class Floppy(discord.Client):
             ], footer=f"ID: {after.id}"))
 
     async def on_member_ban(self, guild, user):
+        state.add_log(f"Member banned: {user}")
         await self.log(guild, make_embed(RED, "🔨 Member Banned", fields=[("User", f"{user.mention} ({user})", True)], footer=f"ID: {user.id}"))
 
     async def on_member_unban(self, guild, user):
