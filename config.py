@@ -1,7 +1,8 @@
 import json
 import os
 
-CONFIG_FILE = "config.json"
+import os
+CONFIG_FILE = os.path.join(os.environ.get("DATA_DIR", "."), "config.json")
 
 DEFAULTS = {
     "welcome_channel": None,
