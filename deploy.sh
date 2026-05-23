@@ -17,6 +17,7 @@ docker run -d \
   --name $CONTAINER_NAME \
   --restart unless-stopped \
   --env-file .env \
+  -p 8080:8080 \
   $IMAGE_ID
 
 docker image prune -f
