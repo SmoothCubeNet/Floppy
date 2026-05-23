@@ -14,20 +14,13 @@ PAGE = """
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #1e1f22;
-      --surface: #2b2d31;
-      --surface2: #313338;
-      --border: #3f4248;
-      --text: #dbdee1;
-      --muted: #949ba4;
-      --accent: #5865f2;
-      --accent-hover: #4752c4;
-      --green: #43b581;
-      --red: #f04747;
-      --yellow: #faa61a;
+      --bg: #1e1f22; --surface: #2b2d31; --surface2: #313338;
+      --border: #3f4248; --text: #dbdee1; --muted: #949ba4;
+      --accent: #5865f2; --accent-hover: #4752c4;
+      --green: #43b581; --red: #f04747; --yellow: #faa61a;
     }
     body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    .sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: var(--surface); border-right: 1px solid var(--border); padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: var(--surface); border-right: 1px solid var(--border); padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
     .sidebar h1 { font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
     .nav-item { padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; color: var(--muted); transition: all 0.15s; display: flex; align-items: center; gap: 0.6rem; }
     .nav-item:hover { background: var(--surface2); color: var(--text); }
@@ -35,7 +28,7 @@ PAGE = """
     .status-pill { margin-top: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); padding: 0.5rem 0.75rem; background: var(--surface2); border-radius: 8px; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
     .dot.online { background: var(--green); }
-    .main { margin-left: 220px; padding: 2rem; max-width: 800px; }
+    .main { margin-left: 220px; padding: 2rem; max-width: 820px; }
     .page { display: none; }
     .page.active { display: block; }
     h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.25rem; }
@@ -57,20 +50,20 @@ PAGE = """
     .toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--green); color: white; padding: 0.75rem 1.25rem; border-radius: 8px; display: none; font-size: 0.9rem; font-weight: 600; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 999; }
     .tag { display: inline-block; background: var(--accent); color: white; border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.78rem; cursor: pointer; margin: 0.15rem; font-family: monospace; }
     .tag:hover { background: var(--accent-hover); }
-    @media (max-width: 700px) {
-      .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
-      .main { margin-left: 0; }
-      .row { grid-template-columns: 1fr; }
-    }
+    .multi-select { display: flex; flex-direction: column; gap: 0.4rem; max-height: 180px; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; }
+    .multi-select label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--text); cursor: pointer; padding: 0.3rem 0.4rem; border-radius: 6px; }
+    .multi-select label:hover { background: var(--surface2); }
+    .multi-select input[type=checkbox] { width: auto; accent-color: var(--accent); }
   </style>
 </head>
 <body>
 
 <div class="sidebar">
   <h1>🐟 Floppy</h1>
-  <div class="nav-item active" onclick="showPage('welcome')">👋 Welcome & Goodbye</div>
-  <div class="nav-item" onclick="showPage('roles')">🔖 Join Role</div>
-  <div class="nav-item" onclick="showPage('audit')">📋 Audit Log</div>
+  <div class="nav-item active" onclick="showPage('welcome', this)">👋 Welcome & Goodbye</div>
+  <div class="nav-item" onclick="showPage('roles', this)">🔖 Join Role</div>
+  <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
+  <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
   <div class="status-pill">
     <div class="dot" id="dot"></div>
     <span id="status-text">Checking...</span>
@@ -83,17 +76,11 @@ PAGE = """
   <div class="page active" id="page-welcome">
     <h2>👋 Welcome & Goodbye</h2>
     <p class="subtitle">Configure join and leave messages for your server.</p>
-
     <div class="card">
       <div class="card-title">Welcome Message</div>
-      <div class="row">
-        <div class="field">
-          <label>Channel</label>
-          <select id="welcome_channel"><option value="">— none —</option></select>
-        </div>
-        <div class="field" style="display:flex;align-items:flex-end;">
-          <!-- spacer -->
-        </div>
+      <div class="field">
+        <label>Channel</label>
+        <select id="welcome_channel"><option value="">— none —</option></select>
       </div>
       <div class="field">
         <label>Message</label>
@@ -104,17 +91,14 @@ PAGE = """
           <span class="tag" onclick="insert('welcome_message','{name}')"><code>{name}</code></span>
           <span class="tag" onclick="insert('welcome_message','{server}')"><code>{server}</code></span>
         </div>
-        <div class="preview" id="preview-welcome">Preview will appear here</div>
+        <div class="preview" id="preview-welcome"></div>
       </div>
     </div>
-
     <div class="card">
       <div class="card-title">Goodbye Message</div>
-      <div class="row">
-        <div class="field">
-          <label>Channel</label>
-          <select id="goodbye_channel"><option value="">— none —</option></select>
-        </div>
+      <div class="field">
+        <label>Channel</label>
+        <select id="goodbye_channel"><option value="">— none —</option></select>
       </div>
       <div class="field">
         <label>Message</label>
@@ -125,10 +109,9 @@ PAGE = """
           <span class="tag" onclick="insert('goodbye_message','{name}')"><code>{name}</code></span>
           <span class="tag" onclick="insert('goodbye_message','{server}')"><code>{server}</code></span>
         </div>
-        <div class="preview" id="preview-goodbye">Preview will appear here</div>
+        <div class="preview" id="preview-goodbye"></div>
       </div>
     </div>
-
     <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
   </div>
 
@@ -146,6 +129,36 @@ PAGE = """
     <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
   </div>
 
+  <!-- TICKETS PAGE -->
+  <div class="page" id="page-tickets">
+    <h2>🎫 Tickets</h2>
+    <p class="subtitle">Configure the ticket system. The panel message will be reposted on every deploy.</p>
+    <div class="card">
+      <div class="card-title">Panel</div>
+      <div class="row">
+        <div class="field">
+          <label>Panel Channel</label>
+          <select id="ticket_channel"><option value="">— none —</option></select>
+          <div class="hint">Where the "Open a Ticket" button is posted.</div>
+        </div>
+        <div class="field">
+          <label>Ticket Category</label>
+          <select id="ticket_category"><option value="">— none —</option></select>
+          <div class="hint">New ticket channels are created under this category.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Staff Roles</div>
+      <div class="field">
+        <label>Roles that can manage tickets</label>
+        <div class="multi-select" id="ticket_staff_roles"></div>
+        <div class="hint">Selected roles can see, claim, and close tickets.</div>
+      </div>
+    </div>
+    <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
+  </div>
+
   <!-- AUDIT PAGE -->
   <div class="page" id="page-audit">
     <h2>📋 Audit Log</h2>
@@ -156,7 +169,7 @@ PAGE = """
         <label>Send logs to</label>
         <select id="audit_log_channel"><option value="">— none —</option></select>
       </div>
-      <div class="hint" style="margin-top:0.5rem;">Floppy will log: message edits/deletes, member joins/leaves, role changes, nickname changes, bans, channel changes, voice activity, and invites.</div>
+      <div class="hint" style="margin-top:0.5rem;">Logs: message edits/deletes, joins/leaves, role changes, nickname changes, bans, channel changes, voice activity, invites.</div>
     </div>
     <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
   </div>
@@ -166,19 +179,18 @@ PAGE = """
 <div class="toast" id="toast">✅ Saved!</div>
 
 <script>
-  let guildData = { channels: [], roles: [] };
+  let guildData = { channels: [], roles: [], categories: [] };
   let cfg = {};
 
-  function showPage(name) {
+  function showPage(name, el) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.getElementById('page-' + name).classList.add('active');
-    event.currentTarget.classList.add('active');
+    el.classList.add('active');
   }
 
   function populateSelect(id, options, savedValue) {
     const el = document.getElementById(id);
-    const current = el.value;
     el.innerHTML = '<option value="">— none —</option>';
     for (const o of options) {
       const opt = document.createElement('option');
@@ -189,10 +201,25 @@ PAGE = """
     }
   }
 
+  function populateStaffRoles(roles, savedValues) {
+    const container = document.getElementById('ticket_staff_roles');
+    container.innerHTML = '';
+    const saved = savedValues || [];
+    for (const role of roles) {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = role.id;
+      cb.checked = saved.map(String).includes(String(role.id));
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(role.name));
+      container.appendChild(label);
+    }
+  }
+
   function insert(fieldId, text) {
     const el = document.getElementById(fieldId);
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
+    const start = el.selectionStart, end = el.selectionEnd;
     el.value = el.value.substring(0, start) + text + el.value.substring(end);
     el.selectionStart = el.selectionEnd = start + text.length;
     el.focus();
@@ -201,8 +228,7 @@ PAGE = """
 
   function updatePreview(type) {
     const msg = document.getElementById(type + '_message').value;
-    const preview = document.getElementById('preview-' + type);
-    preview.textContent = msg
+    document.getElementById('preview-' + type).textContent = msg
       .replace(/{mention}/g, '@YourName')
       .replace(/{name}/g, 'YourName')
       .replace(/{server}/g, 'Social Space');
@@ -216,11 +242,13 @@ PAGE = """
     populateSelect('welcome_channel', guildData.channels, cfg.welcome_channel);
     populateSelect('goodbye_channel', guildData.channels, cfg.goodbye_channel);
     populateSelect('audit_log_channel', guildData.channels, cfg.audit_log_channel);
+    populateSelect('ticket_channel', guildData.channels, cfg.ticket_channel);
+    populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
     populateSelect('join_role', guildData.roles, cfg.join_role);
+    populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
 
     document.getElementById('welcome_message').value = cfg.welcome_message ?? '';
     document.getElementById('goodbye_message').value = cfg.goodbye_message ?? '';
-
     updatePreview('welcome');
     updatePreview('goodbye');
   }
@@ -233,6 +261,7 @@ PAGE = """
   }
 
   async function save() {
+    const staffRoles = [...document.querySelectorAll('#ticket_staff_roles input:checked')].map(cb => cb.value);
     const body = {
       welcome_channel: document.getElementById('welcome_channel').value || null,
       welcome_message: document.getElementById('welcome_message').value || null,
@@ -240,12 +269,11 @@ PAGE = """
       goodbye_message: document.getElementById('goodbye_message').value || null,
       join_role: document.getElementById('join_role').value || null,
       audit_log_channel: document.getElementById('audit_log_channel').value || null,
+      ticket_channel: document.getElementById('ticket_channel').value || null,
+      ticket_category: document.getElementById('ticket_category').value || null,
+      ticket_staff_roles: staffRoles,
     };
-    await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const toast = document.getElementById('toast');
     toast.style.display = 'block';
     setTimeout(() => toast.style.display = 'none', 2500);
@@ -271,11 +299,12 @@ async def status():
 async def guild():
     bot = state.bot
     if not bot or not state.bot_ready or not bot.guilds:
-        return jsonify({"channels": [], "roles": []})
+        return jsonify({"channels": [], "roles": [], "categories": []})
     g = bot.guilds[0]
     channels = [{"id": str(c.id), "name": f"# {c.name}"} for c in sorted(g.text_channels, key=lambda c: c.position)]
     roles = [{"id": str(r.id), "name": r.name} for r in sorted(g.roles, key=lambda r: -r.position) if r.name != "@everyone"]
-    return jsonify({"channels": channels, "roles": roles})
+    categories = [{"id": str(c.id), "name": c.name} for c in sorted(g.categories, key=lambda c: c.position)]
+    return jsonify({"channels": channels, "roles": roles, "categories": categories})
 
 @app.route("/api/config", methods=["GET"])
 async def get_config():
