@@ -65,6 +65,8 @@ PAGE = """
     .refresh-btn { font-size: 0.78rem; background: none; border: 1px solid var(--border); color: var(--muted); padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; }
     .refresh-btn:hover { color: var(--text); border-color: var(--muted); }
     .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+    .log-line { padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--muted); }
+    .log-line:hover { background: var(--surface2); color: var(--text); }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -76,6 +78,7 @@ PAGE = """
   <div class="nav-item" onclick="showPage('roles', this)">🔖 Join Role</div>
   <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
   <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
+  <div class="nav-item" onclick="showPage('logs', this)">🖥️ Logs</div>
   <div class="status-pill">
     <div class="dot" id="dot"></div>
     <span id="status-text">Checking...</span>
@@ -212,6 +215,19 @@ PAGE = """
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-audit">⚠️ Unsaved changes</span>
       <button class="btn" onclick="save('audit')">Save Changes</button>
+    </div>
+  </div>
+
+  <!-- LOGS PAGE -->
+  <div class="page" id="page-logs">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>🖥️ Bot Logs</h2>
+        <p class="subtitle">Last 25 bot events. Auto-refreshes every 5 seconds.</p>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div id="log-list" style="font-family:monospace;font-size:0.82rem;line-height:1.7;padding:1rem;display:flex;flex-direction:column;gap:0.15rem;min-height:200px;"></div>
     </div>
   </div>
 
@@ -366,8 +382,19 @@ PAGE = """
     }
   }
 
+  async function fetchLogs() {
+    const res = await fetch('/api/logs');
+    const data = await res.json();
+    const list = document.getElementById('log-list');
+    if (!list) return;
+    list.innerHTML = data.logs.length
+      ? data.logs.map(l => `<div class="log-line">${l}</div>`).join('')
+      : '<div class="log-line" style="color:var(--muted)">No logs yet...</div>';
+  }
+
   load();
   checkStatus();
+  setInterval(fetchLogs, 5000);
   setInterval(checkStatus, 10000);
   // Auto-refresh guild data every 60s
   setInterval(fetchGuild, 60000);
@@ -406,6 +433,10 @@ async def set_config():
     cfg.update(data)
     config.save(cfg)
     return jsonify({"ok": True})
+
+@app.route("/api/logs")
+async def get_logs():
+    return jsonify({"logs": list(state.logs)})
 
 @app.route("/api/repost-panel", methods=["POST"])
 async def repost_panel():
