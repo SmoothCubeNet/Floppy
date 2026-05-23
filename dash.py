@@ -12,138 +12,249 @@ PAGE = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Floppy Dashboard</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', sans-serif; background: #1e1f22; color: #dbdee1; min-height: 100vh; padding: 2rem; }
-    h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
-    .status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; margin-bottom: 2rem; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #f04747; }
-    .dot.online { background: #43b581; }
-    .card { background: #2b2d31; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
-    .card h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: #949ba4; margin-bottom: 1rem; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #1e1f22;
+      --surface: #2b2d31;
+      --surface2: #313338;
+      --border: #3f4248;
+      --text: #dbdee1;
+      --muted: #949ba4;
+      --accent: #5865f2;
+      --accent-hover: #4752c4;
+      --green: #43b581;
+      --red: #f04747;
+      --yellow: #faa61a;
+    }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .sidebar { position: fixed; top: 0; left: 0; width: 220px; height: 100vh; background: var(--surface); border-right: 1px solid var(--border); padding: 1.5rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .sidebar h1 { font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .nav-item { padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; color: var(--muted); transition: all 0.15s; display: flex; align-items: center; gap: 0.6rem; }
+    .nav-item:hover { background: var(--surface2); color: var(--text); }
+    .nav-item.active { background: var(--accent); color: white; }
+    .status-pill { margin-top: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); padding: 0.5rem 0.75rem; background: var(--surface2); border-radius: 8px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
+    .dot.online { background: var(--green); }
+    .main { margin-left: 220px; padding: 2rem; max-width: 800px; }
+    .page { display: none; }
+    .page.active { display: block; }
+    h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .card { background: var(--surface); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.25rem; border: 1px solid var(--border); }
+    .card-title { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1rem; }
     .field { margin-bottom: 1rem; }
-    label { display: block; font-size: 0.85rem; color: #949ba4; margin-bottom: 0.4rem; }
-    input, select { width: 100%; padding: 0.6rem 0.8rem; background: #1e1f22; border: 1px solid #3f4248; border-radius: 8px; color: #dbdee1; font-size: 0.95rem; }
-    input:focus, select:focus { outline: none; border-color: #5865f2; }
-    .hint { font-size: 0.78rem; color: #6d757d; margin-top: 0.3rem; }
-    button { background: #5865f2; color: white; border: none; padding: 0.65rem 1.5rem; border-radius: 8px; font-size: 0.95rem; cursor: pointer; margin-top: 0.5rem; }
-    button:hover { background: #4752c4; }
-    .toast { position: fixed; bottom: 2rem; right: 2rem; background: #43b581; color: white; padding: 0.75rem 1.25rem; border-radius: 8px; display: none; font-size: 0.9rem; }
+    .field:last-child { margin-bottom: 0; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 500; }
+    input, select, textarea { width: 100%; padding: 0.6rem 0.85rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.92rem; font-family: inherit; transition: border-color 0.15s; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    select option { background: var(--surface2); }
+    .hint { font-size: 0.78rem; color: var(--muted); margin-top: 0.35rem; }
+    .preview { font-size: 0.85rem; background: var(--surface2); border-radius: 8px; padding: 0.75rem 1rem; margin-top: 0.5rem; border-left: 3px solid var(--accent); color: var(--text); min-height: 2rem; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .btn { background: var(--accent); color: white; border: none; padding: 0.65rem 1.5rem; border-radius: 8px; font-size: 0.92rem; cursor: pointer; font-weight: 600; transition: background 0.15s; }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-row { display: flex; justify-content: flex-end; margin-top: 1rem; }
+    .toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--green); color: white; padding: 0.75rem 1.25rem; border-radius: 8px; display: none; font-size: 0.9rem; font-weight: 600; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 999; }
+    .tag { display: inline-block; background: var(--accent); color: white; border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.78rem; cursor: pointer; margin: 0.15rem; font-family: monospace; }
+    .tag:hover { background: var(--accent-hover); }
+    @media (max-width: 700px) {
+      .sidebar { width: 100%; height: auto; position: relative; flex-direction: row; flex-wrap: wrap; }
+      .main { margin-left: 0; }
+      .row { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
+
+<div class="sidebar">
   <h1>🐟 Floppy</h1>
-  <div class="status">
+  <div class="nav-item active" onclick="showPage('welcome')">👋 Welcome & Goodbye</div>
+  <div class="nav-item" onclick="showPage('roles')">🔖 Join Role</div>
+  <div class="nav-item" onclick="showPage('audit')">📋 Audit Log</div>
+  <div class="status-pill">
     <div class="dot" id="dot"></div>
     <span id="status-text">Checking...</span>
   </div>
+</div>
 
-  <div class="card">
-    <h2>Welcome & Goodbye</h2>
-    <div class="field">
-      <label>Welcome Channel</label>
-      <select id="welcome_channel"><option value="">-- select channel --</option></select>
+<div class="main">
+
+  <!-- WELCOME PAGE -->
+  <div class="page active" id="page-welcome">
+    <h2>👋 Welcome & Goodbye</h2>
+    <p class="subtitle">Configure join and leave messages for your server.</p>
+
+    <div class="card">
+      <div class="card-title">Welcome Message</div>
+      <div class="row">
+        <div class="field">
+          <label>Channel</label>
+          <select id="welcome_channel"><option value="">— none —</option></select>
+        </div>
+        <div class="field" style="display:flex;align-items:flex-end;">
+          <!-- spacer -->
+        </div>
+      </div>
+      <div class="field">
+        <label>Message</label>
+        <input id="welcome_message" placeholder="Welcome {mention} to {server}! 🎉" oninput="updatePreview('welcome')">
+        <div class="hint">
+          Click to insert:
+          <span class="tag" onclick="insert('welcome_message','{mention}')"><code>{mention}</code></span>
+          <span class="tag" onclick="insert('welcome_message','{name}')"><code>{name}</code></span>
+          <span class="tag" onclick="insert('welcome_message','{server}')"><code>{server}</code></span>
+        </div>
+        <div class="preview" id="preview-welcome">Preview will appear here</div>
+      </div>
     </div>
-    <div class="field">
-      <label>Welcome Message</label>
-      <input id="welcome_message" placeholder="Welcome {mention} to {server}!">
-      <div class="hint">Use {mention}, {name}, {server}</div>
+
+    <div class="card">
+      <div class="card-title">Goodbye Message</div>
+      <div class="row">
+        <div class="field">
+          <label>Channel</label>
+          <select id="goodbye_channel"><option value="">— none —</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Message</label>
+        <input id="goodbye_message" placeholder="Goodbye {mention}, we'll miss you! 👋" oninput="updatePreview('goodbye')">
+        <div class="hint">
+          Click to insert:
+          <span class="tag" onclick="insert('goodbye_message','{mention}')"><code>{mention}</code></span>
+          <span class="tag" onclick="insert('goodbye_message','{name}')"><code>{name}</code></span>
+          <span class="tag" onclick="insert('goodbye_message','{server}')"><code>{server}</code></span>
+        </div>
+        <div class="preview" id="preview-goodbye">Preview will appear here</div>
+      </div>
     </div>
-    <div class="field">
-      <label>Goodbye Channel</label>
-      <select id="goodbye_channel"><option value="">-- select channel --</option></select>
-    </div>
-    <div class="field">
-      <label>Goodbye Message</label>
-      <input id="goodbye_message" placeholder="Goodbye {name}, we'll miss you!">
-      <div class="hint">Use {mention}, {name}, {server}</div>
-    </div>
+
+    <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
   </div>
 
-  <div class="card">
-    <h2>Join Role</h2>
-    <div class="field">
-      <label>Role to assign on join</label>
-      <select id="join_role"><option value="">-- select role --</option></select>
+  <!-- ROLES PAGE -->
+  <div class="page" id="page-roles">
+    <h2>🔖 Join Role</h2>
+    <p class="subtitle">Automatically assign a role when someone joins.</p>
+    <div class="card">
+      <div class="card-title">Auto Role</div>
+      <div class="field">
+        <label>Role to assign on join</label>
+        <select id="join_role"><option value="">— none —</option></select>
+      </div>
     </div>
+    <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
   </div>
 
-  <div class="card">
-    <h2>Audit Log</h2>
-    <div class="field">
-      <label>Audit Log Channel</label>
-      <select id="audit_log_channel"><option value="">-- select channel --</option></select>
+  <!-- AUDIT PAGE -->
+  <div class="page" id="page-audit">
+    <h2>📋 Audit Log</h2>
+    <p class="subtitle">Log all server activity to a channel.</p>
+    <div class="card">
+      <div class="card-title">Log Channel</div>
+      <div class="field">
+        <label>Send logs to</label>
+        <select id="audit_log_channel"><option value="">— none —</option></select>
+      </div>
+      <div class="hint" style="margin-top:0.5rem;">Floppy will log: message edits/deletes, member joins/leaves, role changes, nickname changes, bans, channel changes, voice activity, and invites.</div>
     </div>
+    <div class="btn-row"><button class="btn" onclick="save()">Save Changes</button></div>
   </div>
 
-  <button onclick="save()">Save Changes</button>
-  <div class="toast" id="toast">✅ Saved!</div>
+</div>
 
-  <script>
-    let channels = [];
-    let roles = [];
+<div class="toast" id="toast">✅ Saved!</div>
 
-    function populateSelect(id, options, savedValue) {
-      const el = document.getElementById(id);
-      el.innerHTML = '<option value="">-- select --</option>';
-      for (const o of options) {
-        const opt = document.createElement('option');
-        opt.value = o.id;
-        opt.textContent = o.name;
-        if (String(savedValue) === String(o.id)) opt.selected = true;
-        el.appendChild(opt);
-      }
+<script>
+  let guildData = { channels: [], roles: [] };
+  let cfg = {};
+
+  function showPage(name) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    event.currentTarget.classList.add('active');
+  }
+
+  function populateSelect(id, options, savedValue) {
+    const el = document.getElementById(id);
+    const current = el.value;
+    el.innerHTML = '<option value="">— none —</option>';
+    for (const o of options) {
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = o.name;
+      if (String(savedValue) === String(o.id)) opt.selected = true;
+      el.appendChild(opt);
     }
+  }
 
-    async function load() {
-      const [guildRes, cfgRes] = await Promise.all([
-        fetch('/api/guild'),
-        fetch('/api/config')
-      ]);
-      const guild = await guildRes.json();
-      const cfg = await cfgRes.json();
+  function insert(fieldId, text) {
+    const el = document.getElementById(fieldId);
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    el.value = el.value.substring(0, start) + text + el.value.substring(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.focus();
+    updatePreview(fieldId.includes('welcome') ? 'welcome' : 'goodbye');
+  }
 
-      channels = guild.channels || [];
-      roles = guild.roles || [];
+  function updatePreview(type) {
+    const msg = document.getElementById(type + '_message').value;
+    const preview = document.getElementById('preview-' + type);
+    preview.textContent = msg
+      .replace(/{mention}/g, '@YourName')
+      .replace(/{name}/g, 'YourName')
+      .replace(/{server}/g, 'Social Space');
+  }
 
-      populateSelect('welcome_channel', channels, cfg.welcome_channel);
-      populateSelect('goodbye_channel', channels, cfg.goodbye_channel);
-      populateSelect('audit_log_channel', channels, cfg.audit_log_channel);
-      populateSelect('join_role', roles, cfg.join_role);
+  async function load() {
+    const [guildRes, cfgRes] = await Promise.all([fetch('/api/guild'), fetch('/api/config')]);
+    guildData = await guildRes.json();
+    cfg = await cfgRes.json();
 
-      document.getElementById('welcome_message').value = cfg.welcome_message ?? '';
-      document.getElementById('goodbye_message').value = cfg.goodbye_message ?? '';
-    }
+    populateSelect('welcome_channel', guildData.channels, cfg.welcome_channel);
+    populateSelect('goodbye_channel', guildData.channels, cfg.goodbye_channel);
+    populateSelect('audit_log_channel', guildData.channels, cfg.audit_log_channel);
+    populateSelect('join_role', guildData.roles, cfg.join_role);
 
-    async function checkStatus() {
-      const res = await fetch('/api/status');
-      const data = await res.json();
-      document.getElementById('dot').className = 'dot' + (data.online ? ' online' : '');
-      document.getElementById('status-text').textContent = data.online ? 'Floppy is online' : 'Floppy is offline';
-    }
+    document.getElementById('welcome_message').value = cfg.welcome_message ?? '';
+    document.getElementById('goodbye_message').value = cfg.goodbye_message ?? '';
 
-    async function save() {
-      const body = {
-        welcome_channel: document.getElementById('welcome_channel').value || null,
-        welcome_message: document.getElementById('welcome_message').value || null,
-        goodbye_channel: document.getElementById('goodbye_channel').value || null,
-        goodbye_message: document.getElementById('goodbye_message').value || null,
-        join_role: document.getElementById('join_role').value || null,
-        audit_log_channel: document.getElementById('audit_log_channel').value || null,
-      };
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const toast = document.getElementById('toast');
-      toast.style.display = 'block';
-      setTimeout(() => toast.style.display = 'none', 2500);
-    }
+    updatePreview('welcome');
+    updatePreview('goodbye');
+  }
 
-    load();
-    checkStatus();
-    setInterval(checkStatus, 10000);
-  </script>
+  async function checkStatus() {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    document.getElementById('dot').className = 'dot' + (data.online ? ' online' : '');
+    document.getElementById('status-text').textContent = data.online ? 'Online' : 'Offline';
+  }
+
+  async function save() {
+    const body = {
+      welcome_channel: document.getElementById('welcome_channel').value || null,
+      welcome_message: document.getElementById('welcome_message').value || null,
+      goodbye_channel: document.getElementById('goodbye_channel').value || null,
+      goodbye_message: document.getElementById('goodbye_message').value || null,
+      join_role: document.getElementById('join_role').value || null,
+      audit_log_channel: document.getElementById('audit_log_channel').value || null,
+    };
+    await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const toast = document.getElementById('toast');
+    toast.style.display = 'block';
+    setTimeout(() => toast.style.display = 'none', 2500);
+  }
+
+  load();
+  checkStatus();
+  setInterval(checkStatus, 10000);
+</script>
 </body>
 </html>
 """
@@ -159,23 +270,11 @@ async def status():
 @app.route("/api/guild")
 async def guild():
     bot = state.bot
-    if not bot or not state.bot_ready:
+    if not bot or not state.bot_ready or not bot.guilds:
         return jsonify({"channels": [], "roles": []})
-
-    guild = bot.guilds[0] if bot.guilds else None
-    if not guild:
-        return jsonify({"channels": [], "roles": []})
-
-    channels = [
-        {"id": str(c.id), "name": f"# {c.name}"}
-        for c in sorted(guild.text_channels, key=lambda c: c.position)
-    ]
-    roles = [
-        {"id": str(r.id), "name": r.name}
-        for r in sorted(guild.roles, key=lambda r: -r.position)
-        if r.name != "@everyone"
-    ]
-
+    g = bot.guilds[0]
+    channels = [{"id": str(c.id), "name": f"# {c.name}"} for c in sorted(g.text_channels, key=lambda c: c.position)]
+    roles = [{"id": str(r.id), "name": r.name} for r in sorted(g.roles, key=lambda r: -r.position) if r.name != "@everyone"]
     return jsonify({"channels": channels, "roles": roles})
 
 @app.route("/api/config", methods=["GET"])
