@@ -18,6 +18,8 @@ docker run -d \
   --restart unless-stopped \
   --env-file .env \
   -p 8080:8080 \
+  -v $(pwd)/data:/app/data \
+  -e DATA_DIR=/app/data \
   $IMAGE_ID
 
 docker image prune -f
