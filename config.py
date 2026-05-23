@@ -5,9 +5,9 @@ CONFIG_FILE = "config.json"
 
 DEFAULTS = {
     "welcome_channel": None,
-    "welcome_message": "Welcome {mention} to {server}!",
+    "welcome_message": "Welcome {mention} to {server}! 🎉",
     "goodbye_channel": None,
-    "goodbye_message": "Goodbye {name}, we'll miss you!",
+    "goodbye_message": "Goodbye {mention}, we'll miss you! 👋",
     "join_role": None,
     "audit_log_channel": None,
 }
@@ -17,7 +17,12 @@ def load():
         save(DEFAULTS.copy())
         return DEFAULTS.copy()
     with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+        data = json.load(f)
+    # fill in any missing keys
+    for k, v in DEFAULTS.items():
+        if k not in data:
+            data[k] = v
+    return data
 
 def save(data: dict):
     with open(CONFIG_FILE, "w") as f:
