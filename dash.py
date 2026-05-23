@@ -344,8 +344,9 @@ PAGE = """
     const wasOnline = document.getElementById('dot').classList.contains('online');
     document.getElementById('dot').className = 'dot' + (data.online ? ' online' : '');
     document.getElementById('status-text').textContent = data.online ? 'Online' : 'Offline';
-    // Auto-refresh guild data when bot comes online
-    if (!wasOnline && data.online) {
+    // Refetch guild data whenever bot is online and dropdowns are empty
+    const hasData = document.querySelector('#welcome_channel option:nth-child(2)');
+    if (data.online && (!wasOnline || !hasData)) {
       await fetchGuild();
     }
   }
