@@ -118,7 +118,7 @@ PAGE = """
 
 @app.route("/")
 async def index():
-    return render_template_string(PAGE)
+    return await render_template_string(PAGE)
 
 @app.route("/api/status")
 async def status():
