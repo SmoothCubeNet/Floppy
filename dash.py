@@ -40,8 +40,8 @@ PAGE = """
   <div class="card">
     <h2>Welcome & Goodbye</h2>
     <div class="field">
-      <label>Welcome Channel ID</label>
-      <input id="welcome_channel" placeholder="e.g. 123456789012345678">
+      <label>Welcome Channel</label>
+      <select id="welcome_channel"><option value="">-- select channel --</option></select>
     </div>
     <div class="field">
       <label>Welcome Message</label>
@@ -49,8 +49,8 @@ PAGE = """
       <div class="hint">Use {mention}, {name}, {server}</div>
     </div>
     <div class="field">
-      <label>Goodbye Channel ID</label>
-      <input id="goodbye_channel" placeholder="e.g. 123456789012345678">
+      <label>Goodbye Channel</label>
+      <select id="goodbye_channel"><option value="">-- select channel --</option></select>
     </div>
     <div class="field">
       <label>Goodbye Message</label>
@@ -62,16 +62,16 @@ PAGE = """
   <div class="card">
     <h2>Join Role</h2>
     <div class="field">
-      <label>Role ID to assign on join</label>
-      <input id="join_role" placeholder="e.g. 123456789012345678">
+      <label>Role to assign on join</label>
+      <select id="join_role"><option value="">-- select role --</option></select>
     </div>
   </div>
 
   <div class="card">
     <h2>Audit Log</h2>
     <div class="field">
-      <label>Audit Log Channel ID</label>
-      <input id="audit_log_channel" placeholder="e.g. 123456789012345678">
+      <label>Audit Log Channel</label>
+      <select id="audit_log_channel"><option value="">-- select channel --</option></select>
     </div>
   </div>
 
@@ -79,13 +79,39 @@ PAGE = """
   <div class="toast" id="toast">✅ Saved!</div>
 
   <script>
-    async function load() {
-      const res = await fetch('/api/config');
-      const cfg = await res.json();
-      for (const key of Object.keys(cfg)) {
-        const el = document.getElementById(key);
-        if (el) el.value = cfg[key] ?? '';
+    let channels = [];
+    let roles = [];
+
+    function populateSelect(id, options, savedValue) {
+      const el = document.getElementById(id);
+      el.innerHTML = '<option value="">-- select --</option>';
+      for (const o of options) {
+        const opt = document.createElement('option');
+        opt.value = o.id;
+        opt.textContent = o.name;
+        if (String(savedValue) === String(o.id)) opt.selected = true;
+        el.appendChild(opt);
       }
+    }
+
+    async function load() {
+      const [guildRes, cfgRes] = await Promise.all([
+        fetch('/api/guild'),
+        fetch('/api/config')
+      ]);
+      const guild = await guildRes.json();
+      const cfg = await cfgRes.json();
+
+      channels = guild.channels || [];
+      roles = guild.roles || [];
+
+      populateSelect('welcome_channel', channels, cfg.welcome_channel);
+      populateSelect('goodbye_channel', channels, cfg.goodbye_channel);
+      populateSelect('audit_log_channel', channels, cfg.audit_log_channel);
+      populateSelect('join_role', roles, cfg.join_role);
+
+      document.getElementById('welcome_message').value = cfg.welcome_message ?? '';
+      document.getElementById('goodbye_message').value = cfg.goodbye_message ?? '';
     }
 
     async function checkStatus() {
@@ -96,13 +122,19 @@ PAGE = """
     }
 
     async function save() {
-      const keys = ['welcome_channel','welcome_message','goodbye_channel','goodbye_message','join_role','audit_log_channel'];
-      const body = {};
-      for (const k of keys) {
-        const el = document.getElementById(k);
-        body[k] = el.value || null;
-      }
-      await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const body = {
+        welcome_channel: document.getElementById('welcome_channel').value || null,
+        welcome_message: document.getElementById('welcome_message').value || null,
+        goodbye_channel: document.getElementById('goodbye_channel').value || null,
+        goodbye_message: document.getElementById('goodbye_message').value || null,
+        join_role: document.getElementById('join_role').value || null,
+        audit_log_channel: document.getElementById('audit_log_channel').value || null,
+      };
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
       const toast = document.getElementById('toast');
       toast.style.display = 'block';
       setTimeout(() => toast.style.display = 'none', 2500);
@@ -123,6 +155,28 @@ async def index():
 @app.route("/api/status")
 async def status():
     return jsonify({"online": state.bot_ready})
+
+@app.route("/api/guild")
+async def guild():
+    bot = state.bot
+    if not bot or not state.bot_ready:
+        return jsonify({"channels": [], "roles": []})
+
+    guild = bot.guilds[0] if bot.guilds else None
+    if not guild:
+        return jsonify({"channels": [], "roles": []})
+
+    channels = [
+        {"id": str(c.id), "name": f"# {c.name}"}
+        for c in sorted(guild.text_channels, key=lambda c: c.position)
+    ]
+    roles = [
+        {"id": str(r.id), "name": r.name}
+        for r in sorted(guild.roles, key=lambda r: -r.position)
+        if r.name != "@everyone"
+    ]
+
+    return jsonify({"channels": channels, "roles": roles})
 
 @app.route("/api/config", methods=["GET"])
 async def get_config():
