@@ -10,6 +10,10 @@ DEFAULTS = {
     "goodbye_message": "Goodbye {mention}, we'll miss you! 👋",
     "join_role": None,
     "audit_log_channel": None,
+    "ticket_channel": None,
+    "ticket_category": None,
+    "ticket_staff_roles": [],
+    "ticket_panel_message_id": None,
 }
 
 def load():
@@ -18,7 +22,6 @@ def load():
         return DEFAULTS.copy()
     with open(CONFIG_FILE, "r") as f:
         data = json.load(f)
-    # fill in any missing keys
     for k, v in DEFAULTS.items():
         if k not in data:
             data[k] = v
