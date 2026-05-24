@@ -25,7 +25,6 @@ PAGE = """
     .nav-item { padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; color: var(--muted); transition: all 0.15s; display: flex; align-items: center; gap: 0.6rem; }
     .nav-item:hover { background: var(--surface2); color: var(--text); }
     .nav-item.active { background: var(--accent); color: white; }
-    .sidebar-bottom { margin-top: auto; }
     .main { margin-left: 220px; padding: 2rem; max-width: 820px; }
     .page { display: none; }
     .page.active { display: block; }
@@ -37,8 +36,8 @@ PAGE = """
     .field { margin-bottom: 1rem; }
     .field:last-child { margin-bottom: 0; }
     label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 500; }
-    input, select, textarea { width: 100%; padding: 0.6rem 0.85rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.92rem; font-family: inherit; transition: border-color 0.15s; }
-    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+    input, select { width: 100%; padding: 0.6rem 0.85rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.92rem; font-family: inherit; transition: border-color 0.15s; }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
     select option { background: var(--surface2); }
     .hint { font-size: 0.78rem; color: var(--muted); margin-top: 0.35rem; }
     .preview { font-size: 0.85rem; background: var(--surface2); border-radius: 8px; padding: 0.75rem 1rem; margin-top: 0.5rem; border-left: 3px solid var(--accent); color: var(--text); min-height: 2rem; }
@@ -47,8 +46,6 @@ PAGE = """
     .btn:hover { background: var(--accent-hover); }
     .btn.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
     .btn.secondary:hover { background: var(--border); }
-    .btn.danger { background: var(--red); }
-    .btn.danger:hover { background: #c0392b; }
     .btn-row { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; align-items: center; flex-wrap: wrap; }
     .unsaved-badge { font-size: 0.8rem; color: var(--yellow); font-weight: 600; display: none; align-items: center; gap: 0.4rem; margin-right: auto; }
     .unsaved-badge.visible { display: flex; }
@@ -60,12 +57,9 @@ PAGE = """
     .multi-select label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; color: var(--text); cursor: pointer; padding: 0.3rem 0.4rem; border-radius: 6px; font-weight: normal; }
     .multi-select label:hover { background: var(--surface2); }
     .multi-select input[type=checkbox] { width: auto; accent-color: var(--accent); }
-    .refresh-btn { font-size: 0.78rem; background: none; border: 1px solid var(--border); color: var(--muted); padding: 0.3rem 0.7rem; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; }
-    .refresh-btn:hover { color: var(--text); border-color: var(--muted); }
-    .refresh-btn.spinning svg { animation: spin 1s linear infinite; }
+    .log-list { font-family: monospace; font-size: 0.82rem; line-height: 1.7; padding: 1rem; display: flex; flex-direction: column; gap: 0.15rem; min-height: 120px; }
     .log-line { padding: 0.2rem 0.5rem; border-radius: 4px; color: var(--muted); }
     .log-line:hover { background: var(--surface2); color: var(--text); }
-    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -127,7 +121,7 @@ PAGE = """
     </div>
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-welcome">⚠️ Unsaved changes</span>
-      <button class="btn" onclick="save('welcome')">Save Changes</button>
+      <button class="btn" onclick="save()">Save Changes</button>
     </div>
   </div>
 
@@ -148,7 +142,7 @@ PAGE = """
     </div>
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-roles">⚠️ Unsaved changes</span>
-      <button class="btn" onclick="save('roles')">Save Changes</button>
+      <button class="btn" onclick="save()">Save Changes</button>
     </div>
   </div>
 
@@ -186,7 +180,7 @@ PAGE = """
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-tickets">⚠️ Unsaved changes</span>
       <button class="btn secondary" onclick="repostPanel()">🔄 Update Panel</button>
-      <button class="btn" onclick="save('tickets')">Save Changes</button>
+      <button class="btn" onclick="save()">Save Changes</button>
     </div>
   </div>
 
@@ -208,7 +202,7 @@ PAGE = """
     </div>
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-audit">⚠️ Unsaved changes</span>
-      <button class="btn" onclick="save('audit')">Save Changes</button>
+      <button class="btn" onclick="save()">Save Changes</button>
     </div>
   </div>
 
@@ -221,7 +215,7 @@ PAGE = """
       </div>
     </div>
     <div class="card" style="padding:0;overflow:hidden;">
-      <div id="log-list" style="font-family:monospace;font-size:0.82rem;line-height:1.7;padding:1rem;display:flex;flex-direction:column;gap:0.15rem;min-height:200px;"></div>
+      <div class="log-list" id="log-list"></div>
     </div>
   </div>
 
@@ -233,7 +227,6 @@ PAGE = """
   let guildData = { channels: [], roles: [], categories: [] };
   let cfg = {};
   let currentPage = 'welcome';
-  let dirty = false;
 
   function showPage(name, el) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -241,17 +234,14 @@ PAGE = """
     document.getElementById('page-' + name).classList.add('active');
     el.classList.add('active');
     currentPage = name;
-    dirty = false;
   }
 
   function markDirty() {
-    dirty = true;
     const badge = document.getElementById('unsaved-' + currentPage);
     if (badge) badge.classList.add('visible');
   }
 
   function clearDirty() {
-    dirty = false;
     document.querySelectorAll('.unsaved-badge').forEach(b => b.classList.remove('visible'));
   }
 
@@ -311,20 +301,35 @@ PAGE = """
   }
 
   async function fetchGuild() {
-    const res = await fetch('/api/guild');
-    guildData = await res.json();
-    populateSelect('welcome_channel', guildData.channels, cfg.welcome_channel);
-    populateSelect('goodbye_channel', guildData.channels, cfg.goodbye_channel);
-    populateSelect('audit_log_channel', guildData.channels, cfg.audit_log_channel);
-    populateSelect('ticket_channel', guildData.channels, cfg.ticket_channel);
-    populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
-    populateSelect('join_role', guildData.roles, cfg.join_role);
-    populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
+    try {
+      const res = await fetch('/api/guild');
+      const data = await res.json();
+      if (!data.channels.length) return; // bot not ready yet, try again later
+      guildData = data;
+      populateSelect('welcome_channel', guildData.channels, cfg.welcome_channel);
+      populateSelect('goodbye_channel', guildData.channels, cfg.goodbye_channel);
+      populateSelect('audit_log_channel', guildData.channels, cfg.audit_log_channel);
+      populateSelect('ticket_channel', guildData.channels, cfg.ticket_channel);
+      populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
+      populateSelect('join_role', guildData.roles, cfg.join_role);
+      populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
+    } catch(e) {}
+  }
+
+  async function fetchLogs() {
+    try {
+      const res = await fetch('/api/logs');
+      const data = await res.json();
+      const list = document.getElementById('log-list');
+      list.innerHTML = data.logs.length
+        ? data.logs.map(l => `<div class="log-line">${l}</div>`).join('')
+        : '<div class="log-line">No logs yet...</div>';
+    } catch(e) {}
   }
 
   async function load() {
-    const cfgRes = await fetch('/api/config');
-    cfg = await cfgRes.json();
+    const res = await fetch('/api/config');
+    cfg = await res.json();
     document.getElementById('welcome_message').value = cfg.welcome_message ?? '';
     document.getElementById('goodbye_message').value = cfg.goodbye_message ?? '';
     updatePreview('welcome');
@@ -332,9 +337,7 @@ PAGE = """
     await fetchGuild();
   }
 
-  }
-
-  async function save(page) {
+  async function save() {
     const staffRoles = [...document.querySelectorAll('#ticket_staff_roles input:checked')].map(cb => cb.value);
     const body = {
       welcome_channel: document.getElementById('welcome_channel').value || null,
@@ -358,28 +361,15 @@ PAGE = """
   }
 
   async function repostPanel() {
-    const res = await fetch('/api/repost-panel');
-    if (res.ok) {
-      toast('✅ Panel updated!');
-    } else {
-      toast('❌ Failed — is the bot online?', true);
-    }
-  }
-
-  async function fetchLogs() {
-    const res = await fetch('/api/logs');
-    const data = await res.json();
-    const list = document.getElementById('log-list');
-    if (!list) return;
-    list.innerHTML = data.logs.length
-      ? data.logs.map(l => `<div class="log-line">${l}</div>`).join('')
-      : '<div class="log-line" style="color:var(--muted)">No logs yet...</div>';
+    const res = await fetch('/api/repost-panel', { method: 'POST' });
+    if (res.ok) toast('✅ Panel updated!');
+    else toast('❌ Failed — is the bot online?', true);
   }
 
   load();
-  setInterval(fetchLogs, 5000);
-  // Auto-refresh guild data every 60s
+  fetchLogs();
   setInterval(fetchGuild, 30000);
+  setInterval(fetchLogs, 5000);
 </script>
 </body>
 </html>
@@ -388,7 +378,6 @@ PAGE = """
 @app.route("/")
 async def index():
     return await render_template_string(PAGE)
-
 
 @app.route("/api/guild")
 async def guild():
@@ -417,7 +406,7 @@ async def set_config():
 async def get_logs():
     return jsonify({"logs": list(state.logs)})
 
-@app.route("/api/repost-panel")
+@app.route("/api/repost-panel", methods=["POST"])
 async def repost_panel():
     from tickets import post_ticket_panel
     bot = state.bot
