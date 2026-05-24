@@ -1,6 +1,5 @@
 from collections import deque
 
-bot_ready: bool = False
 bot: object = None
 logs: deque = deque(maxlen=25)
 
