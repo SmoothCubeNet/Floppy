@@ -105,7 +105,7 @@ class Floppy(discord.Client):
         if channel_id:
             channel = member.guild.get_channel(int(channel_id))
             if channel:
-                msg = cfg.get("welcome_message", "Welcome {mention} to {server}! 🎉")
+                msg = cfg.get("welcome_message", "Welcome {name} to {server}! 🎉")
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
                 invite_text = f"Invited by **{used_invite.inviter}** (`{used_invite.code}`)" if used_invite and used_invite.inviter else ""
                 e = discord.Embed(title=f"Welcome to {member.guild.name}!", description=text, color=GREEN, timestamp=datetime.now(timezone.utc))
