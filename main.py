@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import state
 import config
 from tickets import OpenTicketView, TicketPanelView, post_ticket_panel
+import commands
 
 load_dotenv()
 
@@ -33,6 +34,7 @@ class Floppy(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.invite_cache = {}
+        self.tree = commands.setup(self)
 
     async def setup_hook(self):
         self.add_view(OpenTicketView())
@@ -50,6 +52,7 @@ class Floppy(discord.Client):
     async def on_ready(self):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
+        await self.tree.sync()
         for guild in self.guilds:
             try:
                 invites = await guild.fetch_invites()
@@ -105,17 +108,9 @@ class Floppy(discord.Client):
         if channel_id:
             channel = member.guild.get_channel(int(channel_id))
             if channel:
-                msg = cfg.get("welcome_message", "Welcome {name} to {server}! 🎉")
+                msg = cfg.get("welcome_message", "Welcome {mention} to {server}!")
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
-                invite_text = f"Invited by **{used_invite.inviter}** (`{used_invite.code}`)" if used_invite and used_invite.inviter else ""
-                e = discord.Embed(title=f"Welcome to {member.guild.name}!", description=text, color=GREEN, timestamp=datetime.now(timezone.utc))
-                e.set_thumbnail(url=member.display_avatar.url)
-                e.add_field(name="Account Created", value=f"<t:{int(member.created_at.timestamp())}:R>", inline=True)
-                e.add_field(name="Member #", value=str(member.guild.member_count), inline=True)
-                if invite_text:
-                    e.add_field(name="Invite", value=invite_text, inline=False)
-                e.set_footer(text=f"ID: {member.id}")
-                await channel.send(content=member.mention, embed=e)
+                await channel.send(text)
 
         state.add_log(f"Member joined: {member}")
         await self.log(member.guild, make_embed(GREEN, "Member Joined", fields=[
@@ -132,15 +127,9 @@ class Floppy(discord.Client):
         if channel_id:
             channel = member.guild.get_channel(int(channel_id))
             if channel:
-                msg = cfg.get("goodbye_message", "Goodbye {mention}, we'll miss you! 👋")
+                msg = cfg.get("goodbye_message", "Goodbye {mention}, we'll miss you!")
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
-                e = discord.Embed(title="See you later!", description=text, color=RED, timestamp=datetime.now(timezone.utc))
-                e.set_thumbnail(url=member.display_avatar.url)
-                roles = [r.mention for r in member.roles if r.name != "@everyone"]
-                if roles:
-                    e.add_field(name="Roles", value=" ".join(roles), inline=False)
-                e.set_footer(text=f"ID: {member.id}")
-                await channel.send(content=member.mention, embed=e)
+                await channel.send(text)
 
         state.add_log(f"Member left: {member}")
         await self.log(member.guild, make_embed(RED, "Member Left", fields=[
