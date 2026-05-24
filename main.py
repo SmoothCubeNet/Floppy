@@ -126,7 +126,7 @@ class Floppy(discord.Client):
                 if invite_text:
                     e.add_field(name="Invite", value=invite_text, inline=False)
                 e.set_footer(text=f"ID: {member.id}")
-                await channel.send(embed=e)
+                await channel.send(content=member.mention, embed=e)
 
         state.add_log(f"Member joined: {member}")
         await self.log(member.guild, make_embed(GREEN, "📥 Member Joined", fields=[
@@ -152,7 +152,7 @@ class Floppy(discord.Client):
                 if roles:
                     e.add_field(name="Roles", value=" ".join(roles), inline=False)
                 e.set_footer(text=f"ID: {member.id}")
-                await channel.send(embed=e)
+                await channel.send(content=member.mention, embed=e)
 
         state.add_log(f"Member left: {member}")
         await self.log(member.guild, make_embed(RED, "📤 Member Left", fields=[
