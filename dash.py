@@ -393,7 +393,7 @@ async def index():
 @app.route("/api/guild")
 async def guild():
     bot = state.bot
-    if not bot or not state.bot_ready or not bot.guilds:
+    if not bot or not bot.guilds:
         return jsonify({"channels": [], "roles": [], "categories": []})
     g = bot.guilds[0]
     channels = [{"id": str(c.id), "name": f"# {c.name}"} for c in sorted(g.text_channels, key=lambda c: c.position)]
@@ -421,7 +421,7 @@ async def get_logs():
 async def repost_panel():
     from tickets import post_ticket_panel
     bot = state.bot
-    if not bot or not state.bot_ready:
+    if not bot:
         return jsonify({"ok": False, "error": "Bot not ready"}), 503
     await post_ticket_panel(bot)
     return jsonify({"ok": True})
