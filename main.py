@@ -49,7 +49,6 @@ class Floppy(discord.Client):
         await self.wait_until_ready()
 
     async def on_ready(self):
-        state.bot_ready = True
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
 
@@ -68,7 +67,6 @@ class Floppy(discord.Client):
         print(f"✅ {self.user} is online")
 
     async def on_disconnect(self):
-        state.bot_ready = False
         state.add_log("Bot disconnected")
 
     async def log(self, guild: discord.Guild, emb: discord.Embed):
