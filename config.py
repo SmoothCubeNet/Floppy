@@ -1,7 +1,6 @@
 import json
 import os
 
-import os
 CONFIG_FILE = os.path.join(os.environ.get("DATA_DIR", "."), "config.json")
 
 DEFAULTS = {
