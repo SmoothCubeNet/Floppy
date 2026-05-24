@@ -25,9 +25,7 @@ PAGE = """
     .nav-item { padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; color: var(--muted); transition: all 0.15s; display: flex; align-items: center; gap: 0.6rem; }
     .nav-item:hover { background: var(--surface2); color: var(--text); }
     .nav-item.active { background: var(--accent); color: white; }
-    .status-pill { margin-top: auto; display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--muted); padding: 0.5rem 0.75rem; background: var(--surface2); border-radius: 8px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
-    .dot.online { background: var(--green); }
+    .sidebar-bottom { margin-top: auto; }
     .main { margin-left: 220px; padding: 2rem; max-width: 820px; }
     .page { display: none; }
     .page.active { display: block; }
@@ -79,10 +77,6 @@ PAGE = """
   <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
   <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
   <div class="nav-item" onclick="showPage('logs', this)">🖥️ Logs</div>
-  <div class="status-pill">
-    <div class="dot" id="dot"></div>
-    <span id="status-text">Checking...</span>
-  </div>
 </div>
 
 <div class="main">
@@ -338,17 +332,6 @@ PAGE = """
     await fetchGuild();
   }
 
-  async function checkStatus() {
-    const res = await fetch('/api/status');
-    const data = await res.json();
-    const wasOnline = document.getElementById('dot').classList.contains('online');
-    document.getElementById('dot').className = 'dot' + (data.online ? ' online' : '');
-    document.getElementById('status-text').textContent = data.online ? 'Online' : 'Offline';
-    // Refetch guild data whenever bot is online and dropdowns are empty
-    const hasData = document.querySelector('#welcome_channel option:nth-child(2)');
-    if (data.online && (!wasOnline || !hasData)) {
-      await fetchGuild();
-    }
   }
 
   async function save(page) {
@@ -375,7 +358,7 @@ PAGE = """
   }
 
   async function repostPanel() {
-    const res = await fetch('/api/repost-panel', { method: 'POST' });
+    const res = await fetch('/api/repost-panel');
     if (res.ok) {
       toast('✅ Panel updated!');
     } else {
@@ -394,11 +377,9 @@ PAGE = """
   }
 
   load();
-  checkStatus();
   setInterval(fetchLogs, 5000);
-  setInterval(checkStatus, 10000);
   // Auto-refresh guild data every 60s
-  setInterval(fetchGuild, 60000);
+  setInterval(fetchGuild, 30000);
 </script>
 </body>
 </html>
@@ -408,9 +389,6 @@ PAGE = """
 async def index():
     return await render_template_string(PAGE)
 
-@app.route("/api/status")
-async def status():
-    return jsonify({"online": state.bot_ready})
 
 @app.route("/api/guild")
 async def guild():
@@ -439,7 +417,7 @@ async def set_config():
 async def get_logs():
     return jsonify({"logs": list(state.logs)})
 
-@app.route("/api/repost-panel", methods=["POST"])
+@app.route("/api/repost-panel")
 async def repost_panel():
     from tickets import post_ticket_panel
     bot = state.bot
