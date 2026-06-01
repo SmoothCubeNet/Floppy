@@ -801,11 +801,12 @@ async def get_messages(channel_id):
             reply = None
             if msg.reference and msg.reference.resolved:
                 ref = msg.reference.resolved
-                reply = {
-                    "id": str(ref.id),
-                    "author": ref.author.display_name if hasattr(ref, "author") and ref.author else "Unknown",
-                    "content": ref.content or "",
-                }
+                if hasattr(ref, "content"):
+                    reply = {
+                        "id": str(ref.id),
+                        "author": ref.author.display_name if hasattr(ref, "author") and ref.author else "Unknown",
+                        "content": ref.content or "",
+                    }
             attachments = []
             for a in msg.attachments:
                 is_image = a.content_type and a.content_type.startswith("image/")
