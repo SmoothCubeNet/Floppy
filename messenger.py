@@ -801,7 +801,7 @@ async def get_messages(channel_id):
                 ref = msg.reference.resolved
                 reply = {
                     "id": str(ref.id),
-                    "author": ref.author.display_name if hasattr(ref, "author") else "Unknown",
+                    "author": ref.author.display_name if hasattr(ref, "author") and ref.author else "Unknown",
                     "content": ref.content or "",
                 }
 
@@ -823,9 +823,9 @@ async def get_messages(channel_id):
 
             messages.append({
                 "id": str(msg.id),
-                "author": msg.author.display_name,
-                "author_id": str(msg.author.id),
-                "bot": msg.author.bot,
+                "author": msg.author.display_name if msg.author else "Unknown",
+                "author_id": str(msg.author.id) if msg.author else "0",
+                "bot": msg.author.bot if msg.author else False,
                 "content": msg.content or "",
                 "time": msg.created_at.strftime("%H:%M"),
                 "timestamp": msg.created_at.timestamp(),
@@ -837,6 +837,7 @@ async def get_messages(channel_id):
         messages.reverse()
         return jsonify({"ok": True, "messages": messages})
     except Exception as e:
+        print(f"[get_messages] Error for channel {channel_id}: {e}", flush=True)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
