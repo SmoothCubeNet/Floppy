@@ -796,6 +796,8 @@ async def get_messages(channel_id):
     try:
         messages = []
         async for msg in channel.history(limit=60):
+            if not msg.author:
+                continue
             reply = None
             if msg.reference and msg.reference.resolved:
                 ref = msg.reference.resolved
@@ -820,9 +822,9 @@ async def get_messages(channel_id):
                 })
             messages.append({
                 "id": str(msg.id),
-                "author": msg.author.display_name if msg.author else "Unknown",
-                "author_id": str(msg.author.id) if msg.author else "0",
-                "bot": msg.author.bot if msg.author else False,
+                "author": msg.author.display_name,
+                "author_id": str(msg.author.id),
+                "bot": msg.author.bot,
                 "content": msg.content or "",
                 "time": msg.created_at.strftime("%H:%M"),
                 "timestamp": msg.created_at.timestamp(),
