@@ -804,7 +804,6 @@ async def get_messages(channel_id):
                     "author": ref.author.display_name if hasattr(ref, "author") and ref.author else "Unknown",
                     "content": ref.content or "",
                 }
-
             attachments = []
             for a in msg.attachments:
                 is_image = a.content_type and a.content_type.startswith("image/")
@@ -813,14 +812,12 @@ async def get_messages(channel_id):
                     "url": a.url,
                     "type": "image" if is_image else "file",
                 })
-
             reactions = []
             for r in msg.reactions:
                 reactions.append({
                     "emoji": str(r.emoji),
                     "count": r.count,
                 })
-
             messages.append({
                 "id": str(msg.id),
                 "author": msg.author.display_name if msg.author else "Unknown",
@@ -833,7 +830,6 @@ async def get_messages(channel_id):
                 "attachments": attachments,
                 "reactions": reactions,
             })
-
         messages.reverse()
         return jsonify({"ok": True, "messages": messages})
     except Exception as e:
