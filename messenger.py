@@ -835,7 +835,8 @@ async def get_messages(channel_id):
         messages.reverse()
         return jsonify({"ok": True, "messages": messages})
     except Exception as e:
-        print(f"[get_messages] Error for channel {channel_id}: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
