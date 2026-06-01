@@ -71,7 +71,6 @@ PAGE = """
   <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
   <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
   <div class="nav-item" onclick="showPage('logs', this)">🖥️ Logs</div>
-  <div class="nav-item" onclick="showPage('sendmsg', this)">✉️ Send Message</div>
 </div>
 
 <div class="main">
@@ -220,44 +219,6 @@ PAGE = """
     </div>
   </div>
 
-  <!-- SEND MESSAGE PAGE -->
-  <div class="page" id="page-sendmsg">
-    <div class="page-header">
-      <div class="page-header-left">
-        <h2>✉️ Send Message</h2>
-        <div class="subtitle">Type a message and send it to any channel in real time.</div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">Channel</div>
-      <div class="field">
-        <label for="msg_channel">Target Channel</label>
-        <select id="msg_channel"><option value="">— select a channel —</option></select>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">Message</div>
-      <div class="field">
-        <label for="msg_content">Content</label>
-        <textarea id="msg_content" rows="5" style="width:100%;padding:0.6rem 0.85rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:0.92rem;font-family:inherit;resize:vertical;" placeholder="Type your message here…" oninput="updateMsgPreview()"></textarea>
-        <div class="hint">Supports Discord markdown (bold, italics, code blocks, etc.)</div>
-      </div>
-      <div class="field">
-        <label>Preview</label>
-        <div class="preview" id="msg-preview" style="white-space:pre-wrap;">Your message will appear here…</div>
-      </div>
-      <div class="btn-row">
-        <span id="msg-char-count" style="font-size:0.82rem;color:var(--muted);margin-right:auto;">0 / 2000</span>
-        <button class="btn secondary" onclick="clearMsg()">Clear</button>
-        <button class="btn" onclick="sendMsg()" id="send-btn">Send</button>
-      </div>
-    </div>
-    <div class="card" id="send-history-card" style="display:none;">
-      <div class="card-title">Recent Sends</div>
-      <div id="send-history" style="display:flex;flex-direction:column;gap:0.5rem;font-size:0.85rem;"></div>
-    </div>
-  </div>
-
 </div>
 
 <div class="toast" id="toast"></div>
@@ -352,7 +313,6 @@ PAGE = """
       populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
       populateSelect('join_role', guildData.roles, cfg.join_role);
       populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
-      populateSelect('msg_channel', guildData.channels, null);
     } catch(e) {}
   }
 
@@ -410,98 +370,10 @@ PAGE = """
   fetchLogs();
   setInterval(fetchGuild, 30000);
   setInterval(fetchLogs, 5000);
-  // ---- Send Message ----
-  const sendHistory = [];
-
-  function updateMsgPreview() {
-    const val = document.getElementById('msg_content').value;
-    document.getElementById('msg-preview').textContent = val || 'Your message will appear here…';
-    document.getElementById('msg-char-count').textContent = val.length + ' / 2000';
-    document.getElementById('msg-char-count').style.color = val.length > 2000 ? 'var(--red)' : 'var(--muted)';
-  }
-
-  function clearMsg() {
-    document.getElementById('msg_content').value = '';
-    updateMsgPreview();
-  }
-
-  async function sendMsg() {
-    const channelId = document.getElementById('msg_channel').value;
-    const content = document.getElementById('msg_content').value.trim();
-    if (!channelId) { toast('Pick a channel first!', true); return; }
-    if (!content) { toast('Message is empty!', true); return; }
-    if (content.length > 2000) { toast('Message too long (max 2000 chars)', true); return; }
-    const btn = document.getElementById('send-btn');
-    btn.disabled = true;
-    btn.textContent = 'Sending…';
-    try {
-      const res = await fetch('/api/send-message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channel_id: channelId, content })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        toast('Message sent!');
-        const channelName = document.getElementById('msg_channel').selectedOptions[0]?.textContent || '#unknown';
-        sendHistory.unshift({ channel: channelName, preview: content.slice(0, 80), time: new Date().toLocaleTimeString() });
-        if (sendHistory.length > 10) sendHistory.pop();
-        renderSendHistory();
-        document.getElementById('msg_content').value = '';
-        updateMsgPreview();
-      } else {
-        toast(data.error || 'Failed to send', true);
-      }
-    } catch(e) {
-      toast('Network error', true);
-    }
-    btn.disabled = false;
-    btn.textContent = 'Send';
-  }
-
-  function renderSendHistory() {
-    const card = document.getElementById('send-history-card');
-    const el = document.getElementById('send-history');
-    if (!sendHistory.length) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
-    el.innerHTML = sendHistory.map(h => `
-      <div style="background:var(--surface2);border-radius:8px;padding:0.6rem 0.85rem;border:1px solid var(--border);">
-        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:0.2rem;">${h.channel} · ${h.time}</div>
-        <div style="color:var(--text);">${h.preview}${h.preview.length >= 80 ? '…' : ''}</div>
-      </div>
-    `).join('');
-  }
-
-  // Populate send message channel select whenever guild data loads
-  const _origFetchGuild = fetchGuild;
-
 </script>
 </body>
 </html>
 """
-
-
-@app.route("/api/send-message", methods=["POST"])
-async def send_message():
-    data = await request.get_json()
-    channel_id = data.get("channel_id")
-    msg_content = data.get("content", "").strip()
-    if not channel_id or not msg_content:
-        return jsonify({"ok": False, "error": "Missing channel_id or content"}), 400
-    if len(msg_content) > 2000:
-        return jsonify({"ok": False, "error": "Message exceeds 2000 characters"}), 400
-    bot = state.bot
-    if not bot:
-        return jsonify({"ok": False, "error": "Bot not ready"}), 503
-    channel = bot.get_channel(int(channel_id))
-    if not channel:
-        return jsonify({"ok": False, "error": "Channel not found"}), 404
-    try:
-        await channel.send(msg_content)
-        state.add_log(f"Dashboard sent message to #{channel.name}")
-        return jsonify({"ok": True})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/")
 async def index():
