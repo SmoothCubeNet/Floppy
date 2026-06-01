@@ -1,9 +1,8 @@
 import io
-import base64
-from quart import Quart, jsonify, request, render_template_string, Response
+from quart import Blueprint, jsonify, request, render_template_string
 import state
 
-messenger_app = Quart(__name__)
+messenger_app = Blueprint('messenger', __name__)
 
 # ---------------------------------------------------------------------------
 # HTML PAGE
