@@ -186,6 +186,7 @@ class TicketPanelView(discord.ui.View):
 # ── Panel posting ─────────────────────────────────────────────────────────────
 
 async def post_ticket_panel(bot: discord.Client):
+    """Post (or re-post) the ticket panel. Only called explicitly — never on boot."""
     cfg = config.load()
     channel_id = cfg.get("ticket_channel")
     if not channel_id:
@@ -199,7 +200,7 @@ async def post_ticket_panel(bot: discord.Client):
     if not channel:
         return
 
-    # Delete old panel message if exists
+    # Delete old panel message if it still exists
     old_msg_id = cfg.get(PANEL_MESSAGE_KEY)
     if old_msg_id:
         try:
