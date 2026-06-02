@@ -62,7 +62,7 @@ class TicketModal(discord.ui.Modal, title="Open a Ticket"):
             name=f"ticket-{member.name.lower()}",
             category=category,
             overwrites=overwrites,
-            topic=f"Ticket by {member} | Reason: {self.reason.value}",
+            topic=f"Ticket by {member} | opener:{member.id} | Reason: {self.reason.value}",
         )
 
         # Panel embed at top
@@ -100,10 +100,7 @@ class TicketPanelView(discord.ui.View):
         opener_id = None
         if channel.topic:
             try:
-                mention = channel.topic.split("Ticket by ")[1].split(" |")[0]
-                member = discord.utils.find(lambda m: str(m) == mention, interaction.guild.members)
-                if member:
-                    opener_id = member.id
+                opener_id = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
             except Exception:
                 pass
 
@@ -124,7 +121,6 @@ class TicketPanelView(discord.ui.View):
                 lines.append(f"[{ts}] {msg.author} (attachment): {a.url}")
 
         transcript = "\n".join(lines)
-        file = discord.File(io.BytesIO(transcript.encode()), filename=f"transcript-{channel.name}.txt")
 
         # DM opener
         if opener_id:
@@ -137,6 +133,7 @@ class TicketPanelView(discord.ui.View):
                         color=0x5865f2,
                         timestamp=datetime.now(timezone.utc),
                     )
+                    file = discord.File(io.BytesIO(transcript.encode()), filename=f"transcript-{channel.name}.txt")
                     await opener.send(embed=dm_embed, file=file)
                 except discord.Forbidden:
                     pass
