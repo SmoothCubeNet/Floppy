@@ -12,6 +12,7 @@ DEFAULTS = {
     "audit_log_channel": None,
     "ticket_channel": None,
     "ticket_category": None,
+    "ticket_closed_category": None,
     "ticket_staff_roles": [],
     "ticket_panel_message_id": None,
     "member_count_channel": None,
