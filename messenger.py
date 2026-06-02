@@ -18,7 +18,11 @@ messenger_app = Blueprint('messenger', __name__)
 @messenger_app.route("/")
 async def index():
     here = os.path.dirname(os.path.abspath(__file__))
-    return await send_from_directory(here, "messenger.html")
+    html_path = os.path.join(here, "messenger.html")
+    with open(html_path, "r", encoding="utf-8") as f:
+        html = f.read()
+    from quart import Response
+    return Response(html, mimetype="text/html")
 
 
 @messenger_app.route("/api/guild")
