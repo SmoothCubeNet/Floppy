@@ -112,9 +112,11 @@ class TicketPanelView(discord.ui.View):
 
         await interaction.response.send_message("🔒 Closing ticket and sending transcript...", ephemeral=False)
 
-        # Build transcript
+        # Build transcript (excluding bot messages)
         lines = []
         async for msg in channel.history(limit=500, oldest_first=True):
+            if msg.author.bot:
+                continue
             ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
             lines.append(f"[{ts}] {msg.author} ({msg.author.id}): {msg.content}")
             for a in msg.attachments:
@@ -138,6 +140,25 @@ class TicketPanelView(discord.ui.View):
                 except discord.Forbidden:
                     pass
 
+        # Move to closed category instead of deleting
+        closed_cat_id = cfg.get("ticket_closed_category")
+        if closed_cat_id:
+            closed_category = interaction.guild.get_channel(int(closed_cat_id))
+            if closed_category:
+                # Lock the channel for the opener, keep staff access
+                overwrites = channel.overwrites
+                opener = interaction.guild.get_member(opener_id) if opener_id else None
+                if opener and opener in overwrites:
+                    overwrites[opener] = discord.PermissionOverwrite(view_channel=True, send_messages=False, read_message_history=True)
+                await channel.edit(
+                    name=f"closed-{channel.name.removeprefix('ticket-')}",
+                    category=closed_category,
+                    overwrites=overwrites,
+                    reason="Ticket closed",
+                )
+                return
+
+        # Fallback: delete if no closed category is configured
         await channel.delete(reason="Ticket closed")
 
     @discord.ui.button(label="Claim", style=discord.ButtonStyle.success, emoji="👤", custom_id="ticket:claim")
@@ -160,27 +181,6 @@ class TicketPanelView(discord.ui.View):
         self.claim_ticket.label = f"Claimed by {interaction.user.display_name}"
         await interaction.message.edit(view=self)
 
-    @discord.ui.button(label="Transcript", style=discord.ButtonStyle.secondary, emoji="📄", custom_id="ticket:transcript")
-    async def save_transcript(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cfg = config.load()
-        staff_role_ids = cfg.get("ticket_staff_roles", [])
-        is_staff = any(str(r.id) in [str(x) for x in staff_role_ids] for r in interaction.user.roles)
-        if not is_staff:
-            await interaction.response.send_message("Only staff can save transcripts.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        lines = []
-        async for msg in interaction.channel.history(limit=500, oldest_first=True):
-            ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            lines.append(f"[{ts}] {msg.author} ({msg.author.id}): {msg.content}")
-            for a in msg.attachments:
-                lines.append(f"[{ts}] {msg.author} (attachment): {a.url}")
-
-        transcript = "\n".join(lines)
-        file = discord.File(io.BytesIO(transcript.encode()), filename=f"transcript-{interaction.channel.name}.txt")
-        await interaction.followup.send("📄 Here's the transcript:", file=file, ephemeral=True)
 
 
 # ── Panel posting ─────────────────────────────────────────────────────────────
