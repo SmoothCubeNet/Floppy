@@ -406,19 +406,20 @@ function autoGrow(el) {
 // ── Guild + DM loading ──
 async function loadGuild() {
   try {
-    const [gRes, dmRes] = await Promise.all([
-      fetch('/messenger/api/guild'),
-      fetch('/messenger/api/dms'),
-    ]);
+    const gRes = await fetch('/messenger/api/guild');
     const data = await gRes.json();
-    const dmData = await dmRes.json();
     if (!data.channels) return;
     guildData = data;
     allChannels = data.channels;
     allMembers = data.members || [];
     renderChannels(data.channels, data.categories);
+  } catch(e) { console.error('Failed to load guild:', e); }
+
+  try {
+    const dmRes = await fetch('/messenger/api/dms');
+    const dmData = await dmRes.json();
     renderDMs(dmData.dms || []);
-  } catch(e) {}
+  } catch(e) { console.error('Failed to load DMs:', e); }
 }
 
 function renderDMs(dms) {
