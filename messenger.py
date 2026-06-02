@@ -439,9 +439,14 @@ function renderDMs(dms) {
 function openNewDM() {
   document.getElementById('new-dm-modal').style.display = 'flex';
   document.getElementById('dm-user-search').value = '';
-  document.getElementById('dm-user-results').innerHTML = '';
-  renderMemberResults(allMembers.slice(0, 20));
+  document.getElementById('dm-user-results').innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem">Loading members…</div>';
   setTimeout(() => document.getElementById('dm-user-search').focus(), 50);
+  fetch('/messenger/api/members').then(r => r.json()).then(data => {
+    allMembers = data.members || [];
+    renderMemberResults(allMembers.slice(0, 20));
+  }).catch(() => {
+    document.getElementById('dm-user-results').innerHTML = '<div style="color:var(--red);font-size:0.82rem;padding:0.5rem">Failed to load members</div>';
+  });
 }
 
 function closeNewDM() {
@@ -888,19 +893,27 @@ async def guild():
         {"id": str(c.id), "name": c.name, "position": c.position}
         for c in sorted(g.categories, key=lambda c: c.position)
     ]
+    members = []
+    return jsonify({"channels": channels, "categories": categories, "members": members})
+
+
+@messenger_app.route("/api/members")
+async def get_members():
+    bot = state.bot
+    if not bot or not bot.guilds:
+        return jsonify({"members": []})
+    g = bot.guilds[0]
     members = [
         {
             "id": str(m.id),
             "username": m.name,
             "display_name": m.display_name,
         }
-        for m in sorted(g.members, key=lambda m: m.display_name.lower())
+        async for m in g.fetch_members(limit=1000)
         if not m.bot
     ]
-    return jsonify({"channels": channels, "categories": categories, "members": members})
-
-
-@messenger_app.route("/api/dms")
+    members.sort(key=lambda m: m["display_name"].lower())
+    return jsonify({"members": members})
 async def get_dms():
     bot = state.bot
     if not bot:
@@ -923,8 +936,9 @@ async def get_dm_messages(user_id):
     if not bot:
         return jsonify({"ok": False, "error": "Bot not ready"}), 503
     try:
-        user = await bot.fetch_user(user_id)
-        dm = await user.create_dm()
+        g = bot.guilds[0]
+        member = g.get_member(user_id) or await g.fetch_member(user_id)
+        dm = await member.create_dm()
         messages = []
         async for msg in dm.history(limit=60):
             if not msg.author:
@@ -969,8 +983,9 @@ async def dm_send():
 
     import discord as _discord
     try:
-        user = await bot.fetch_user(int(user_id))
-        dm = await user.create_dm()
+        g = bot.guilds[0]
+        member = g.get_member(int(user_id)) or await g.fetch_member(int(user_id))
+        dm = await member.create_dm()
         discord_files = []
         for f in files.getlist("files"):
             discord_files.append(_discord.File(io.BytesIO(f.read()), filename=f.filename))
@@ -978,10 +993,12 @@ async def dm_send():
             content or None,
             files=discord_files if discord_files else _discord.utils.MISSING,
         )
-        state.add_log(f"Messenger DM sent to {user.name}")
+        state.add_log(f"Messenger DM sent to {member.name}")
         return jsonify({"ok": True})
-    except _discord.Forbidden:
-        return jsonify({"ok": False, "error": "User has DMs disabled or hasn't shared a server with the bot"}), 403
+    except _discord.Forbidden as e:
+        return jsonify({"ok": False, "error": f"Forbidden: {e.text}"}), 403
+    except _discord.NotFound:
+        return jsonify({"ok": False, "error": "User not found in server"}), 404
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
