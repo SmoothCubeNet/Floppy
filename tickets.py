@@ -111,6 +111,7 @@ class TicketPanelView(discord.ui.View):
             return
 
         await interaction.response.send_message("🔒 Closing ticket and sending transcript...", ephemeral=False)
+        status_msg = await interaction.original_response()
 
         # Build transcript (excluding bot messages)
         lines = []
@@ -140,6 +141,14 @@ class TicketPanelView(discord.ui.View):
                 except discord.Forbidden:
                     pass
 
+        # Disable close and claim buttons on the panel
+        button.disabled = True
+        button.label = "Closed"
+        for child in self.children:
+            if hasattr(child, 'custom_id') and child.custom_id == "ticket:claim":
+                child.disabled = True
+        await interaction.message.edit(view=self)
+
         # Move to closed category instead of deleting
         closed_cat_id = cfg.get("ticket_closed_category")
         if closed_cat_id:
@@ -156,6 +165,7 @@ class TicketPanelView(discord.ui.View):
                     overwrites=overwrites,
                     reason="Ticket closed",
                 )
+                await status_msg.delete()
                 return
 
         # Fallback: delete if no closed category is configured
