@@ -90,8 +90,7 @@ class Floppy(discord.Client):
                 self.invite_cache[guild.id] = {inv.code: inv.uses for inv in invites}
             except Exception:
                 pass
-        await post_ticket_panel(self)
-        state.add_log("Ticket panel posted")
+        state.add_log("Ticket panel views registered (panel NOT re-sent on boot)")
         print(f"Online as {self.user}")
 
     async def on_disconnect(self):
