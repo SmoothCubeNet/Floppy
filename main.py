@@ -46,17 +46,22 @@ class Floppy(discord.Client):
         cfg = config.load()
         channel_id = cfg.get("member_count_channel")
         if not channel_id:
+            state.add_log("Member count: no channel configured")
             return
-        channel = guild.get_channel(int(channel_id))
+        channel = guild.get_channel(int(channel_id)) or await guild.fetch_channel(int(channel_id))
         if not channel:
+            state.add_log(f"Member count: channel {channel_id} not found")
             return
-        label = cfg.get("member_count_label", "👥 Members: {count}")
+        label = cfg.get("member_count_label") or "👥 Members: {count}"
         name = label.replace("{count}", str(guild.member_count))
         try:
             if channel.name != name:
                 await channel.edit(name=name, reason="Member count update")
-        except Exception:
-            pass
+                state.add_log(f"Member count: renamed to '{name}'")
+            else:
+                state.add_log(f"Member count: already up to date ('{name}')")
+        except Exception as e:
+            state.add_log(f"Member count: failed to rename — {e}")
 
     @tasks.loop(minutes=30)
     async def update_member_count_task(self):
