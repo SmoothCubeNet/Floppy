@@ -914,6 +914,9 @@ async def get_members():
     ]
     members.sort(key=lambda m: m["display_name"].lower())
     return jsonify({"members": members})
+
+
+@messenger_app.route("/api/dms")
 async def get_dms():
     bot = state.bot
     if not bot:
@@ -984,8 +987,13 @@ async def dm_send():
     import discord as _discord
     try:
         g = bot.guilds[0]
-        member = g.get_member(int(user_id)) or await g.fetch_member(int(user_id))
-        dm = await member.create_dm()
+        try:
+            member = g.get_member(int(user_id)) or await g.fetch_member(int(user_id))
+            dm = await member.create_dm()
+        except (_discord.NotFound, _discord.HTTPException):
+            # Fallback: fetch_member failed (e.g. Members Intent off), try fetch_user
+            user = await bot.fetch_user(int(user_id))
+            dm = await user.create_dm()
         discord_files = []
         for f in files.getlist("files"):
             discord_files.append(_discord.File(io.BytesIO(f.read()), filename=f.filename))
@@ -993,12 +1001,12 @@ async def dm_send():
             content or None,
             files=discord_files if discord_files else _discord.utils.MISSING,
         )
-        state.add_log(f"Messenger DM sent to {member.name}")
+        state.add_log(f"Messenger DM sent to user {user_id}")
         return jsonify({"ok": True})
     except _discord.Forbidden as e:
-        return jsonify({"ok": False, "error": f"Forbidden: {e.text}"}), 403
+        return jsonify({"ok": False, "error": f"Forbidden — user may have DMs disabled ({e.text})"}), 403
     except _discord.NotFound:
-        return jsonify({"ok": False, "error": "User not found in server"}), 404
+        return jsonify({"ok": False, "error": "User not found"}), 404
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
