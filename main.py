@@ -40,6 +40,32 @@ class Floppy(discord.Client):
         self.add_view(OpenTicketView())
         self.add_view(TicketPanelView())
         self.cycle_status.start()
+        self.update_member_count_task.start()
+
+    async def update_member_count(self, guild):
+        cfg = config.load()
+        channel_id = cfg.get("member_count_channel")
+        if not channel_id:
+            return
+        channel = guild.get_channel(int(channel_id))
+        if not channel:
+            return
+        label = cfg.get("member_count_label", "👥 Members: {count}")
+        name = label.replace("{count}", str(guild.member_count))
+        try:
+            if channel.name != name:
+                await channel.edit(name=name, reason="Member count update")
+        except Exception:
+            pass
+
+    @tasks.loop(minutes=10)
+    async def update_member_count_task(self):
+        for guild in self.guilds:
+            await self.update_member_count(guild)
+
+    @update_member_count_task.before_loop
+    async def before_member_count(self):
+        await self.wait_until_ready()
 
     @tasks.loop(seconds=600)
     async def cycle_status(self):
@@ -112,6 +138,7 @@ class Floppy(discord.Client):
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
                 await channel.send(text)
 
+        await self.update_member_count(member.guild)
         state.add_log(f"Member joined: {member}")
         await self.log(member.guild, make_embed(GREEN, "Member Joined", fields=[
             ("Member", f"{member.mention} ({member})", True),
@@ -131,6 +158,7 @@ class Floppy(discord.Client):
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
                 await channel.send(text)
 
+        await self.update_member_count(member.guild)
         state.add_log(f"Member left: {member}")
         await self.log(member.guild, make_embed(RED, "Member Left", fields=[
             ("Member", f"{member} ({member.id})", False),
