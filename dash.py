@@ -405,6 +405,9 @@ PAGE = """
     if (res.ok) {
       cfg = { ...cfg, ...body };
       clearDirty();
+      if (body.member_count_channel) {
+        await fetch('/api/sync-member-count', { method: 'POST' });
+      }
       toast('✅ Saved!');
     } else {
       toast('❌ Save failed', true);
@@ -452,6 +455,15 @@ async def set_config():
     cfg = config.load()
     cfg.update(data)
     config.save(cfg)
+    return jsonify({"ok": True})
+
+@app.route("/api/sync-member-count", methods=["POST"])
+async def sync_member_count():
+    bot = state.bot
+    if not bot or not bot.guilds:
+        return jsonify({"ok": False, "error": "Bot not ready"}), 503
+    for guild in bot.guilds:
+        await bot.update_member_count(guild)
     return jsonify({"ok": True})
 
 @app.route("/api/logs")
