@@ -168,6 +168,11 @@ PAGE = """
           <select id="ticket_category" onchange="markDirty()"><option value="">— none —</option></select>
           <div class="hint">New ticket channels go under this category.</div>
         </div>
+        <div class="field">
+          <label>Closed Ticket Category</label>
+          <select id="ticket_closed_category" onchange="markDirty()"><option value="">— none —</option></select>
+          <div class="hint">Closed tickets are moved here instead of deleted. Leave blank to delete on close.</div>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -357,6 +362,7 @@ PAGE = """
       populateSelect('audit_log_channel', guildData.channels, cfg.audit_log_channel);
       populateSelect('ticket_channel', guildData.channels, cfg.ticket_channel);
       populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
+      populateSelect('ticket_closed_category', guildData.categories, cfg.ticket_closed_category);
       populateSelect('join_role', guildData.roles, cfg.join_role);
       populateSelect('member_count_channel', guildData.voice_channels, cfg.member_count_channel);
       populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
@@ -397,6 +403,7 @@ PAGE = """
       audit_log_channel: document.getElementById('audit_log_channel').value || null,
       ticket_channel: document.getElementById('ticket_channel').value || null,
       ticket_category: document.getElementById('ticket_category').value || null,
+      ticket_closed_category: document.getElementById('ticket_closed_category').value || null,
       ticket_staff_roles: staffRoles,
       member_count_channel: document.getElementById('member_count_channel').value || null,
       member_count_label: document.getElementById('member_count_label').value || null,
