@@ -69,6 +69,7 @@ PAGE = """
   <div class="nav-item active" onclick="showPage('welcome', this)">👋 Welcome & Goodbye</div>
   <div class="nav-item" onclick="showPage('roles', this)">🔖 Join Role</div>
   <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
+  <div class="nav-item" onclick="showPage('membercount', this)">📊 Member Count</div>
   <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
   <div class="nav-item" onclick="showPage('logs', this)">🖥️ Logs</div>
 </div>
@@ -184,6 +185,36 @@ PAGE = """
     </div>
   </div>
 
+  <!-- MEMBER COUNT PAGE -->
+  <div class="page" id="page-membercount">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>📊 Member Count</h2>
+        <p class="subtitle">Display a live member count in a voice channel name.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Counter Channel</div>
+      <div class="field">
+        <label>Channel to rename</label>
+        <select id="member_count_channel" onchange="markDirty()"><option value="">— none —</option></select>
+        <div class="hint">Pick any voice channel. Its name will be updated automatically whenever someone joins or leaves (and every 10 minutes).</div>
+      </div>
+      <div class="field">
+        <label>Name template</label>
+        <input id="member_count_label" placeholder="👥 Members: {count}" oninput="updateMemberCountPreview(); markDirty()">
+        <div class="hint">
+          Click to insert: <span class="tag" onclick="insertMemberCount('{count}')"><code>{count}</code></span>
+        </div>
+        <div class="preview" id="preview-membercount"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <span class="unsaved-badge" id="unsaved-membercount">⚠️ Unsaved changes</span>
+      <button class="btn" onclick="save()">Save Changes</button>
+    </div>
+  </div>
+
   <!-- AUDIT PAGE -->
   <div class="page" id="page-audit">
     <div class="page-header">
@@ -224,7 +255,7 @@ PAGE = """
 <div class="toast" id="toast"></div>
 
 <script>
-  let guildData = { channels: [], roles: [], categories: [] };
+  let guildData = { channels: [], roles: [], categories: [], voice_channels: [] };
   let cfg = {};
   let currentPage = 'welcome';
 
@@ -282,6 +313,21 @@ PAGE = """
     }
   }
 
+  function updateMemberCountPreview() {
+    const msg = document.getElementById('member_count_label').value || '👥 Members: {count}';
+    document.getElementById('preview-membercount').textContent = msg.replace(/{count}/g, '42');
+  }
+
+  function insertMemberCount(text) {
+    const el = document.getElementById('member_count_label');
+    const start = el.selectionStart, end = el.selectionEnd;
+    el.value = el.value.substring(0, start) + text + el.value.substring(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.focus();
+    updateMemberCountPreview();
+    markDirty();
+  }
+
   function insert(fieldId, text) {
     const el = document.getElementById(fieldId);
     const start = el.selectionStart, end = el.selectionEnd;
@@ -312,6 +358,7 @@ PAGE = """
       populateSelect('ticket_channel', guildData.channels, cfg.ticket_channel);
       populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
       populateSelect('join_role', guildData.roles, cfg.join_role);
+      populateSelect('member_count_channel', guildData.voice_channels, cfg.member_count_channel);
       populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
     } catch(e) {}
   }
@@ -332,8 +379,10 @@ PAGE = """
     cfg = await res.json();
     document.getElementById('welcome_message').value = cfg.welcome_message ?? '';
     document.getElementById('goodbye_message').value = cfg.goodbye_message ?? '';
+    document.getElementById('member_count_label').value = cfg.member_count_label ?? '';
     updatePreview('welcome');
     updatePreview('goodbye');
+    updateMemberCountPreview();
     await fetchGuild();
   }
 
@@ -349,6 +398,8 @@ PAGE = """
       ticket_channel: document.getElementById('ticket_channel').value || null,
       ticket_category: document.getElementById('ticket_category').value || null,
       ticket_staff_roles: staffRoles,
+      member_count_channel: document.getElementById('member_count_channel').value || null,
+      member_count_label: document.getElementById('member_count_label').value || null,
     };
     const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (res.ok) {
@@ -386,9 +437,10 @@ async def guild():
         return jsonify({"channels": [], "roles": [], "categories": []})
     g = bot.guilds[0]
     channels = [{"id": str(c.id), "name": f"# {c.name}"} for c in sorted(g.text_channels, key=lambda c: c.position)]
+    voice_channels = [{"id": str(c.id), "name": f"🔊 {c.name}"} for c in sorted(g.voice_channels, key=lambda c: c.position)]
     roles = [{"id": str(r.id), "name": r.name} for r in sorted(g.roles, key=lambda r: -r.position) if r.name != "@everyone"]
     categories = [{"id": str(c.id), "name": c.name} for c in sorted(g.categories, key=lambda c: c.position)]
-    return jsonify({"channels": channels, "roles": roles, "categories": categories})
+    return jsonify({"channels": channels, "roles": roles, "categories": categories, "voice_channels": voice_channels})
 
 @app.route("/api/config", methods=["GET"])
 async def get_config():
