@@ -14,6 +14,8 @@ DEFAULTS = {
     "ticket_category": None,
     "ticket_staff_roles": [],
     "ticket_panel_message_id": None,
+    "member_count_channel": None,
+    "member_count_label": "👥 Members: {count}",
 }
 
 def load():
