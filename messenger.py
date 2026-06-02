@@ -279,7 +279,15 @@ PAGE = """<!DOCTYPE html>
   <div id="sidebar">
     <div id="sidebar-header">🐟 Floppy Messenger</div>
     <input id="channel-search" type="text" placeholder="Search channels…" oninput="filterChannels(this.value)">
-    <div id="channel-list"><div class="state-msg">Loading…</div></div>
+    <div id="channel-list">
+      <div class="ch-category" style="display:flex;align-items:center;justify-content:space-between;padding-right:0.5rem">
+        Direct Messages
+        <button onclick="openNewDM()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:0" title="New DM">✎</button>
+      </div>
+      <div id="dm-list"><div class="state-msg" style="font-size:0.78rem;padding:0.3rem 0.6rem">Loading…</div></div>
+      <div class="ch-category" style="margin-top:0.5rem">Server Channels</div>
+      <div id="server-channel-list"><div class="state-msg">Loading…</div></div>
+    </div>
   </div>
 
   <!-- ── CHAT ── -->
@@ -314,6 +322,19 @@ PAGE = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- ── NEW DM MODAL ── -->
+<div id="new-dm-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:300;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;width:380px;max-width:90vw;">
+    <div style="font-weight:700;font-size:1rem;margin-bottom:1rem;">💬 New Direct Message</div>
+    <input id="dm-user-search" type="text" placeholder="Search by username…" oninput="searchDMUsers(this.value)"
+      style="width:100%;padding:0.5rem 0.75rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:0.88rem;margin-bottom:0.75rem;">
+    <div id="dm-user-results" style="max-height:200px;overflow-y:auto;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:1rem;">
+      <button onclick="closeNewDM()" style="background:none;border:1px solid var(--border);color:var(--text);padding:0.4rem 1rem;border-radius:6px;cursor:pointer;font-size:0.88rem;">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── EMOJI PICKER ── -->
 <div id="emoji-picker">
   <input id="emoji-search" type="text" placeholder="Search emoji…" oninput="filterEmoji(this.value)">
@@ -331,13 +352,14 @@ PAGE = """<!DOCTYPE html>
 <script>
 // ── State ──
 let guildData = { channels: [], categories: [] };
-let activeChannel = null; // { id, name }
+let activeChannel = null; // { id, name, isDM, userId }
 let replyTarget = null;   // { id, author, content }
 let pendingFiles = [];
 let lastMessageIds = new Set();
 let pollInterval = null;
 let emojiTarget = null;   // message id if reacting, null if inserting into text
 let allChannels = [];
+let allMembers = [];
 
 const AVATAR_COLORS = [
   '#5865f2','#3ba55d','#faa61a','#ed4245',
@@ -381,20 +403,96 @@ function autoGrow(el) {
   el.style.height = Math.min(el.scrollHeight, 150) + 'px';
 }
 
-// ── Channel sidebar ──
+// ── Guild + DM loading ──
 async function loadGuild() {
   try {
-    const res = await fetch('/messenger/api/guild');
-    const data = await res.json();
+    const [gRes, dmRes] = await Promise.all([
+      fetch('/messenger/api/guild'),
+      fetch('/messenger/api/dms'),
+    ]);
+    const data = await gRes.json();
+    const dmData = await dmRes.json();
     if (!data.channels) return;
     guildData = data;
     allChannels = data.channels;
+    allMembers = data.members || [];
     renderChannels(data.channels, data.categories);
+    renderDMs(dmData.dms || []);
   } catch(e) {}
 }
 
+function renderDMs(dms) {
+  const list = document.getElementById('dm-list');
+  if (!dms.length) {
+    list.innerHTML = '<div class="state-msg" style="font-size:0.78rem;padding:0.3rem 0.6rem;color:var(--muted2)">No recent DMs</div>';
+    return;
+  }
+  list.innerHTML = dms.map(dm => {
+    const active = activeChannel && activeChannel.isDM && activeChannel.userId === dm.user_id ? ' active' : '';
+    return `<div class="ch-item${active}" id="chi-dm-${dm.user_id}" onclick="selectDM('${dm.user_id}','${esc(dm.username)}')" title="DM: ${esc(dm.username)}">
+      <span style="font-size:0.9rem">💬</span>${esc(dm.display_name || dm.username)}
+    </div>`;
+  }).join('');
+}
+
+// ── New DM modal ──
+function openNewDM() {
+  document.getElementById('new-dm-modal').style.display = 'flex';
+  document.getElementById('dm-user-search').value = '';
+  document.getElementById('dm-user-results').innerHTML = '';
+  renderMemberResults(allMembers.slice(0, 20));
+  setTimeout(() => document.getElementById('dm-user-search').focus(), 50);
+}
+
+function closeNewDM() {
+  document.getElementById('new-dm-modal').style.display = 'none';
+}
+
+function renderMemberResults(members) {
+  const el = document.getElementById('dm-user-results');
+  if (!members.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:0.3rem">No members found</div>';
+    return;
+  }
+  el.innerHTML = members.map(m =>
+    `<div onclick="selectDM('${m.id}','${esc(m.username)}');closeNewDM()"
+      style="padding:0.5rem 0.6rem;border-radius:6px;cursor:pointer;font-size:0.88rem;display:flex;align-items:center;gap:0.5rem"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span style="width:28px;height:28px;border-radius:50%;background:${avatarColor(m.id)};display:inline-flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:white;flex-shrink:0">${initials(m.display_name||m.username)}</span>
+      <span style="font-weight:600">${esc(m.display_name||m.username)}</span>
+      <span style="color:var(--muted);font-size:0.78rem">@${esc(m.username)}</span>
+    </div>`
+  ).join('');
+}
+
+function searchDMUsers(q) {
+  q = q.toLowerCase();
+  const filtered = q
+    ? allMembers.filter(m => m.username.toLowerCase().includes(q) || (m.display_name||'').toLowerCase().includes(q))
+    : allMembers.slice(0, 20);
+  renderMemberResults(filtered);
+}
+
+// ── DM channel selection ──
+async function selectDM(userId, username) {
+  activeChannel = { id: userId, name: username, isDM: true, userId };
+  document.querySelectorAll('.ch-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('chi-dm-' + userId);
+  if (el) el.classList.add('active');
+  document.getElementById('chat-channel-name').innerHTML = `💬 <strong>${esc(username)}</strong>`;
+  document.getElementById('msg-input').placeholder = `Message ${username}…`;
+  document.getElementById('msg-input').disabled = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('messages').innerHTML = '<div class="state-msg">Loading messages…</div>';
+  lastMessageIds = new Set();
+  cancelReply();
+  if (pollInterval) clearInterval(pollInterval);
+  await fetchMessages();
+  pollInterval = setInterval(fetchMessages, 4000);
+}
+
 function renderChannels(channels, categories) {
-  const list = document.getElementById('channel-list');
+  const list = document.getElementById('server-channel-list');
   if (!channels.length) {
     list.innerHTML = '<div class="state-msg">Bot not ready</div>';
     return;
@@ -441,7 +539,7 @@ function filterChannels(q) {
 
 // ── Channel selection ──
 async function selectChannel(id, name) {
-  activeChannel = { id, name: name.replace(/^# /, '') };
+  activeChannel = { id, name: name.replace(/^# /, ''), isDM: false };
   document.querySelectorAll('.ch-item').forEach(el => el.classList.remove('active'));
   const el = document.getElementById('chi-' + id);
   if (el) el.classList.add('active');
@@ -462,7 +560,10 @@ async function selectChannel(id, name) {
 async function fetchMessages() {
   if (!activeChannel) return;
   try {
-    const res = await fetch(`/messenger/api/messages/${activeChannel.id}`);
+    const url = activeChannel.isDM
+      ? `/messenger/api/dm-messages/${activeChannel.userId}`
+      : `/messenger/api/messages/${activeChannel.id}`;
+    const res = await fetch(url);
     const data = await res.json();
     if (!data.ok) {
       document.getElementById('messages').innerHTML =
@@ -630,12 +731,17 @@ async function sendMessage() {
 
   try {
     const fd = new FormData();
-    fd.append('channel_id', activeChannel.id);
+    if (activeChannel.isDM) {
+      fd.append('user_id', activeChannel.userId);
+    } else {
+      fd.append('channel_id', activeChannel.id);
+    }
     if (content) fd.append('content', content);
     if (replyTarget) fd.append('reply_to', replyTarget.id);
     for (const f of pendingFiles) fd.append('files', f);
 
-    const res = await fetch('/messenger/api/send', { method: 'POST', body: fd });
+    const endpoint = activeChannel.isDM ? '/messenger/api/dm-send' : '/messenger/api/send';
+    const res = await fetch(endpoint, { method: 'POST', body: fd });
     const data = await res.json();
     if (data.ok) {
       input.value = '';
@@ -767,7 +873,7 @@ async def index():
 async def guild():
     bot = state.bot
     if not bot or not bot.guilds:
-        return jsonify({"channels": [], "roles": [], "categories": []})
+        return jsonify({"channels": [], "roles": [], "categories": [], "members": []})
     g = bot.guilds[0]
     channels = [
         {
@@ -782,7 +888,102 @@ async def guild():
         {"id": str(c.id), "name": c.name, "position": c.position}
         for c in sorted(g.categories, key=lambda c: c.position)
     ]
-    return jsonify({"channels": channels, "categories": categories})
+    members = [
+        {
+            "id": str(m.id),
+            "username": m.name,
+            "display_name": m.display_name,
+        }
+        for m in sorted(g.members, key=lambda m: m.display_name.lower())
+        if not m.bot
+    ]
+    return jsonify({"channels": channels, "categories": categories, "members": members})
+
+
+@messenger_app.route("/api/dms")
+async def get_dms():
+    bot = state.bot
+    if not bot:
+        return jsonify({"dms": []})
+    dms = []
+    for channel in bot.private_channels:
+        if hasattr(channel, "recipient") and channel.recipient:
+            u = channel.recipient
+            dms.append({
+                "user_id": str(u.id),
+                "username": u.name,
+                "display_name": u.display_name,
+            })
+    return jsonify({"dms": dms})
+
+
+@messenger_app.route("/api/dm-messages/<int:user_id>")
+async def get_dm_messages(user_id):
+    bot = state.bot
+    if not bot:
+        return jsonify({"ok": False, "error": "Bot not ready"}), 503
+    try:
+        user = await bot.fetch_user(user_id)
+        dm = await user.create_dm()
+        messages = []
+        async for msg in dm.history(limit=60):
+            if not msg.author:
+                continue
+            attachments = []
+            for a in msg.attachments:
+                is_image = a.content_type and a.content_type.startswith("image/")
+                attachments.append({"name": a.filename, "url": a.url, "type": "image" if is_image else "file"})
+            messages.append({
+                "id": str(msg.id),
+                "author": msg.author.display_name,
+                "author_id": str(msg.author.id),
+                "bot": msg.author.bot,
+                "content": msg.content or "",
+                "time": msg.created_at.strftime("%H:%M"),
+                "timestamp": msg.created_at.timestamp(),
+                "reply": None,
+                "attachments": attachments,
+                "reactions": [],
+            })
+        messages.reverse()
+        return jsonify({"ok": True, "messages": messages})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@messenger_app.route("/api/dm-send", methods=["POST"])
+async def dm_send():
+    bot = state.bot
+    if not bot:
+        return jsonify({"ok": False, "error": "Bot not ready"}), 503
+
+    form = await request.form
+    files = await request.files
+    user_id = form.get("user_id")
+    content = form.get("content", "").strip()
+
+    if not user_id:
+        return jsonify({"ok": False, "error": "Missing user_id"}), 400
+    if not content and not files.getlist("files"):
+        return jsonify({"ok": False, "error": "Nothing to send"}), 400
+
+    import discord as _discord
+    try:
+        user = await bot.fetch_user(int(user_id))
+        dm = await user.create_dm()
+        discord_files = []
+        for f in files.getlist("files"):
+            discord_files.append(_discord.File(io.BytesIO(f.read()), filename=f.filename))
+        await dm.send(
+            content or None,
+            files=discord_files if discord_files else _discord.utils.MISSING,
+        )
+        state.add_log(f"Messenger DM sent to {user.name}")
+        return jsonify({"ok": True})
+    except _discord.Forbidden:
+        return jsonify({"ok": False, "error": "User has DMs disabled or hasn't shared a server with the bot"}), 403
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @messenger_app.route("/api/messages/<int:channel_id>")
