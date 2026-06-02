@@ -406,11 +406,12 @@ function channelRow(ch){
   const clickable=['text','announcement','news','forum'].includes(ch.type);
   const icon=chanIcon(ch.type);
   const cls=['ch-row',ch.type,isActive?'active':'',!clickable?'disabled':''].filter(Boolean).join(' ');
-  const click=clickable?`onclick="selectChannel('${ch.id}','${esc(ch.name)}','${ch.type}','${esc((ch.topic||'').replace(/'/g,"\\'")))}'"`:'';
-  return `<div class="${cls}" id="chi-${ch.id}" ${click} title="${esc(ch.name)}">
-    <span class="ch-icon">${icon}</span>
-    <span class="ch-name">${esc(ch.name)}</span>
-  </div>`;
+  const safeTopic = (ch.topic||'').replace(/'/g,'&#39;');
+  const click = clickable ? 'onclick="selectChannel(\''+ch.id+'\',\''+esc(ch.name)+'\',\''+ch.type+'\',\''+safeTopic+'\')"' : '';
+  return '<div class="'+cls+'" id="chi-'+ch.id+'" '+click+' title="'+esc(ch.name)+'">'
+       + '<span class="ch-icon">'+icon+'</span>'
+       + '<span class="ch-name">'+esc(ch.name)+'</span>'
+       + '</div>';
 }
 
 function toggleCat(id,header){
@@ -533,13 +534,20 @@ function buildMessage(m,cont){
     if(a.type==='image')return`<img class="attachment-img" src="${esc(a.url)}" alt="${esc(a.name)}" onclick="openLightbox('${esc(a.url)}')">`;
     return`<a class="attachment-file" href="${esc(a.url)}" target="_blank" rel="noreferrer">📎 ${esc(a.name)}</a>`;
   }).join('');
-  const reactions=(m.reactions||[]).length?`<div class="reactions">${m.reactions.map(r=>`<button class="reaction" onclick="addReaction('${m.id}','${esc(r.emoji)}')">${r.emoji} <span class="reaction-count">${r.count}</span></button>`).join('')}<button class="add-reaction" onclick="openEmojiPicker('${m.id}',event)">+</button></div>`:'';
-  const actions=`<div class="msg-actions">
-    <button class="mac-btn" title="React" onclick="openEmojiPicker('${m.id}',event)">😊</button>
-    <button class="mac-btn" title="Reply" onclick="startReply('${m.id}','${esc(m.author)}','${esc((m.content||'').replace(/'/g,"\\'").slice(0,80))}')">↩</button>
-    <button class="mac-btn danger" title="Delete" onclick="deleteMessage('${m.id}')">🗑️</button>
-  </div>`;
-  return`<div class="msg-wrapper ${cont?'cont':'first'}" id="msg-${m.id}">${hoverTime}<div class="msg-group ${cont?'cont':'first'}">${avatarPart}<div class="msg-col">${meta}${reply}${text}${attachments}${reactions}</div></div>${actions}</div>`;
+  const reactions=(m.reactions||[]).length
+    ? '<div class="reactions">'+m.reactions.map(r=>'<button class="reaction" onclick="addReaction(\''+m.id+'\',\''+esc(r.emoji)+'\')">'+ r.emoji +' <span class="reaction-count">'+r.count+'</span></button>').join('')+'<button class="add-reaction" onclick="openEmojiPicker(\''+m.id+'\',event)">+</button></div>'
+    : '';
+  const safeContent = (m.content||'').slice(0,80).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const safeAuthor = (m.author||'').replace(/'/g,"\\'");
+  const actions='<div class="msg-actions">'
+    +'<button class="mac-btn" title="React" onclick="openEmojiPicker(\''+m.id+'\',event)">😊</button>'
+    +'<button class="mac-btn" title="Reply" onclick="startReply(\''+m.id+'\',\''+safeAuthor+'\',\''+safeContent+'\')">↩</button>'
+    +'<button class="mac-btn danger" title="Delete" onclick="deleteMessage(\''+m.id+'\')">🗑️</button>'
+    +'</div>';
+  return '<div class="msg-wrapper '+(cont?'cont':'first')+'" id="msg-'+m.id+'">'+hoverTime
+    +'<div class="msg-group '+(cont?'cont':'first')+'">'+avatarPart
+    +'<div class="msg-col">'+meta+reply+text+attachments+reactions+'</div>'
+    +'</div>'+actions+'</div>';
 }
 
 function linkify(s){return s.replace(/(https?:\/\/[^\s<>"]+)/g,'<a href="$1" target="_blank" rel="noreferrer">$1</a>');}
