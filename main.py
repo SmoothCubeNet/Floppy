@@ -58,7 +58,7 @@ class Floppy(discord.Client):
         except Exception:
             pass
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=30)
     async def update_member_count_task(self):
         for guild in self.guilds:
             await self.update_member_count(guild)
