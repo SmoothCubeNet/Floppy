@@ -658,6 +658,7 @@ function buildMessage(m, continuation) {
     <div class="msg-actions">
       <button class="msg-action-btn" title="React" onclick="openEmojiPicker('${m.id}', event)">😊</button>
       <button class="msg-action-btn" title="Reply" onclick="startReply('${m.id}','${esc(m.author)}','${esc((m.content||'').replace(/'/g,"\\'").slice(0,80))}')">↩</button>
+      <button class="msg-action-btn" title="Delete message" style="color:var(--red)" onclick="deleteMessage('${m.id}')">🗑️</button>
     </div>`;
 
   return `<div class="msg-wrapper" id="msg-${m.id}">
@@ -858,6 +859,32 @@ document.addEventListener('keydown', e => {
     closeEmojiPicker();
   }
 });
+
+// ── Delete message ──
+async function deleteMessage(msgId) {
+  if (!activeChannel) return;
+  if (!confirm('Delete this message? This cannot be undone.')) return;
+  try {
+    const body = activeChannel.isDM
+      ? { user_id: activeChannel.userId, message_id: msgId }
+      : { channel_id: activeChannel.id, message_id: msgId };
+    const res = await fetch('/messenger/api/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // Remove message from DOM instantly, then refresh
+      const el = document.getElementById('msg-' + msgId);
+      if (el) el.remove();
+      lastMessageIds = new Set();
+      await fetchMessages();
+    } else {
+      toast(data.error || 'Failed to delete', true);
+    }
+  } catch(e) { toast('Network error', true); }
+}
 
 // ── Init ──
 loadGuild();
@@ -1116,6 +1143,67 @@ async def send_message():
         )
         state.add_log(f"Messenger sent to #{channel.name}")
         return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@messenger_app.route("/api/delete", methods=["POST"])
+async def delete_message():
+    bot = state.bot
+    if not bot:
+        return jsonify({"ok": False, "error": "Bot not ready"}), 503
+
+    import discord as _discord
+
+    payload = await request.get_json()
+    message_id = payload.get("message_id")
+    channel_id = payload.get("channel_id")   # server channel
+    user_id    = payload.get("user_id")       # DM recipient
+
+    if not message_id:
+        return jsonify({"ok": False, "error": "Missing message_id"}), 400
+
+    try:
+        if user_id:
+            # ── DM delete — bot can only delete its own messages ──
+            g = bot.guilds[0]
+            try:
+                member = g.get_member(int(user_id)) or await g.fetch_member(int(user_id))
+                dm = await member.create_dm()
+            except (_discord.NotFound, _discord.HTTPException):
+                user = await bot.fetch_user(int(user_id))
+                dm = await user.create_dm()
+
+            msg = await dm.fetch_message(int(message_id))
+            if msg.author.id != bot.user.id:
+                return jsonify({"ok": False, "error": "Can only delete the bot's own DM messages"}), 403
+            await msg.delete()
+            state.add_log(f"Messenger deleted DM message {message_id}")
+            return jsonify({"ok": True})
+
+        elif channel_id:
+            # ── Server channel delete — needs Manage Messages ──
+            channel = bot.get_channel(int(channel_id))
+            if not channel:
+                return jsonify({"ok": False, "error": "Channel not found"}), 404
+
+            me = channel.guild.me
+            perms = channel.permissions_for(me)
+            if not perms.manage_messages and not perms.administrator:
+                return jsonify({"ok": False, "error": "Bot lacks Manage Messages permission in this channel"}), 403
+
+            msg = await channel.fetch_message(int(message_id))
+            await msg.delete()
+            state.add_log(f"Messenger deleted message {message_id} in #{channel.name}")
+            return jsonify({"ok": True})
+
+        else:
+            return jsonify({"ok": False, "error": "Missing channel_id or user_id"}), 400
+
+    except _discord.NotFound:
+        return jsonify({"ok": False, "error": "Message not found (already deleted?)"}), 404
+    except _discord.Forbidden as e:
+        return jsonify({"ok": False, "error": f"Forbidden: {e.text}"}), 403
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
