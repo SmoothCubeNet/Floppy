@@ -193,6 +193,106 @@ class TicketPanelView(discord.ui.View):
 
 
 
+# ── Mention handler (called from on_message in main.py) ──────────────────────
+
+async def handle_ticket_mention(message: discord.Message):
+    """
+    If a staff member pings one or more users inside a ticket channel,
+    grant each mentioned user view access and rename the channel to
+    include all their names (e.g. ticket-alice-bob).
+    """
+    channel = message.channel
+
+    # Only act in ticket channels (name starts with ticket-)
+    if not isinstance(channel, discord.TextChannel):
+        return
+    if not channel.name.startswith("ticket-"):
+        return
+
+    # Only act on messages from real users that actually mention someone
+    if message.author.bot or not message.mentions:
+        return
+
+    cfg = config.load()
+    staff_role_ids = [str(r) for r in cfg.get("ticket_staff_roles", [])]
+    author_role_ids = [str(r.id) for r in message.author.roles]
+    is_staff = any(rid in staff_role_ids for rid in author_role_ids)
+    if not is_staff:
+        return
+
+    guild = channel.guild
+    newly_added = []
+
+    for user in message.mentions:
+        if user.bot:
+            continue
+        # Skip if they already have explicit access
+        existing = channel.overwrites_for(user)
+        if existing.view_channel:
+            continue
+
+        await channel.set_permissions(
+            user,
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            reason=f"Added to ticket by {message.author}",
+        )
+        newly_added.append(user)
+
+    if not newly_added:
+        return
+
+    # Rebuild channel name: ticket-<opener>-<added1>-<added2>-…
+    # Extract opener name from the current channel name (strip "ticket-" prefix)
+    base = channel.name.removeprefix("ticket-")
+    # Also strip names that were already appended in a previous call
+    # We anchor on the opener recorded in the topic
+    opener_name = base  # fallback
+    if channel.topic:
+        try:
+            opener_id = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
+            opener_member = guild.get_member(opener_id)
+            if opener_member:
+                opener_name = opener_member.name.lower()
+        except Exception:
+            pass
+
+    # Collect all non-opener names that now have explicit access
+    added_names = []
+    for target, overwrite in channel.overwrites.items():
+        if isinstance(target, discord.Member) and target != guild.me:
+            opener_id_check = None
+            if channel.topic:
+                try:
+                    opener_id_check = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
+                except Exception:
+                    pass
+            if opener_id_check and target.id == opener_id_check:
+                continue
+            if overwrite.view_channel:
+                added_names.append(target.name.lower())
+
+    added_names.sort()
+    parts = [opener_name] + added_names
+    new_name = "ticket-" + "-".join(parts)[:90]  # Discord channel name limit is 100 chars
+
+    if channel.name != new_name:
+        try:
+            await channel.edit(name=new_name, reason=f"Ticket updated with added users by {message.author}")
+        except discord.HTTPException:
+            pass
+
+    # Notify in channel
+    mentions_str = ", ".join(u.mention for u in newly_added)
+    e = discord.Embed(
+        description=f"👥 {mentions_str} {'has' if len(newly_added) == 1 else 'have'} been added to this ticket by {message.author.mention}.",
+        color=0x5865f2,
+        timestamp=datetime.now(timezone.utc),
+    )
+    await channel.send(embed=e)
+
+
 # ── Panel posting ─────────────────────────────────────────────────────────────
 
 async def post_ticket_panel(bot: discord.Client):
