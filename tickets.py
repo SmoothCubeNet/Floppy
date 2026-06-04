@@ -141,12 +141,11 @@ class TicketPanelView(discord.ui.View):
                 except discord.Forbidden:
                     pass
 
-        # Disable close and claim buttons on the panel
-        button.disabled = True
-        button.label = "Closed"
+        # Disable all buttons on the panel
         for child in self.children:
-            if hasattr(child, 'custom_id') and child.custom_id == "ticket:claim":
-                child.disabled = True
+            child.disabled = True
+            if hasattr(child, 'custom_id') and child.custom_id == "ticket:close":
+                child.label = "Closed"
         await interaction.message.edit(view=self)
 
         # Move to closed category instead of deleting
@@ -154,7 +153,6 @@ class TicketPanelView(discord.ui.View):
         if closed_cat_id:
             closed_category = interaction.guild.get_channel(int(closed_cat_id))
             if closed_category:
-                # Lock the channel for the opener, keep staff access
                 overwrites = channel.overwrites
                 opener = interaction.guild.get_member(opener_id) if opener_id else None
                 if opener and opener in overwrites:
@@ -186,10 +184,228 @@ class TicketPanelView(discord.ui.View):
             timestamp=datetime.now(timezone.utc),
         )
         await interaction.response.send_message(embed=e)
-        # Disable claim button
         self.claim_ticket.disabled = True
         self.claim_ticket.label = f"Claimed by {interaction.user.display_name}"
         await interaction.message.edit(view=self)
+
+    @discord.ui.button(label="Ticket Actions", style=discord.ButtonStyle.secondary, emoji="⚙️", custom_id="ticket:actions")
+    async def ticket_actions(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cfg = config.load()
+        staff_role_ids = cfg.get("ticket_staff_roles", [])
+        is_staff = any(str(r.id) in [str(x) for x in staff_role_ids] for r in interaction.user.roles)
+        if not is_staff:
+            await interaction.response.send_message("Only staff can use ticket actions.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="⚙️ Ticket Actions",
+                description="Choose an action below.",
+                color=0x5865f2,
+            ),
+            view=TicketActionsView(),
+            ephemeral=True,
+        )
+
+
+# ── Ticket Actions select + modals ────────────────────────────────────────────
+
+class TicketActionsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+
+    @discord.ui.select(
+        placeholder="Select an action...",
+        custom_id="ticket:actions_select",
+        options=[
+            discord.SelectOption(label="Add User(s)", value="add", emoji="➕", description="Grant one or more users access to this ticket"),
+            discord.SelectOption(label="Remove User(s)", value="remove", emoji="➖", description="Revoke one or more users' access to this ticket"),
+        ],
+    )
+    async def select_action(self, interaction: discord.Interaction, select: discord.ui.Select):
+        action = select.values[0]
+        if action == "add":
+            await interaction.response.send_modal(AddUsersModal())
+        else:
+            await interaction.response.send_modal(RemoveUsersModal())
+
+
+class AddUsersModal(discord.ui.Modal, title="Add Users to Ticket"):
+    user_ids = discord.ui.TextInput(
+        label="User ID(s)",
+        placeholder="Comma-separated IDs, e.g. 123456789, 987654321",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        guild = interaction.guild
+
+        raw_ids = [s.strip() for s in self.user_ids.value.split(",") if s.strip()]
+        added, already_in, not_found, errors = [], [], [], []
+
+        for raw in raw_ids:
+            try:
+                uid = int(raw)
+            except ValueError:
+                errors.append(raw)
+                continue
+            member = guild.get_member(uid)
+            if not member:
+                try:
+                    member = await guild.fetch_member(uid)
+                except Exception:
+                    not_found.append(raw)
+                    continue
+
+            existing = channel.overwrites_for(member)
+            if existing.view_channel:
+                already_in.append(member.mention)
+                continue
+
+            await channel.set_permissions(
+                member,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                reason=f"Added to ticket by {interaction.user}",
+            )
+            added.append(member)
+
+        # Rename channel to include newly added users
+        if added:
+            await _rename_ticket_channel(channel, guild)
+
+        # Build response
+        lines = []
+        if added:
+            lines.append(f"✅ Added: {', '.join(m.mention for m in added)}")
+        if already_in:
+            lines.append(f"ℹ️ Already in ticket: {', '.join(already_in)}")
+        if not_found:
+            lines.append(f"❌ Not found: {', '.join(not_found)}")
+        if errors:
+            lines.append(f"⚠️ Invalid IDs: {', '.join(errors)}")
+
+        await interaction.followup.send("\n".join(lines) or "Nothing changed.", ephemeral=True)
+
+        if added:
+            mentions_str = ", ".join(m.mention for m in added)
+            e = discord.Embed(
+                description=f"➕ {mentions_str} {'has' if len(added) == 1 else 'have'} been added to this ticket by {interaction.user.mention}.",
+                color=0x43b581,
+                timestamp=datetime.now(timezone.utc),
+            )
+            await channel.send(embed=e)
+
+
+class RemoveUsersModal(discord.ui.Modal, title="Remove Users from Ticket"):
+    user_ids = discord.ui.TextInput(
+        label="User ID(s)",
+        placeholder="Comma-separated IDs, e.g. 123456789, 987654321",
+        style=discord.TextStyle.paragraph,
+        max_length=500,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        guild = interaction.guild
+
+        # Protect the opener from being removed
+        opener_id = None
+        if channel.topic:
+            try:
+                opener_id = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
+            except Exception:
+                pass
+
+        raw_ids = [s.strip() for s in self.user_ids.value.split(",") if s.strip()]
+        removed, protected, not_found, errors = [], [], [], []
+
+        for raw in raw_ids:
+            try:
+                uid = int(raw)
+            except ValueError:
+                errors.append(raw)
+                continue
+
+            if uid == opener_id:
+                protected.append(raw)
+                continue
+
+            member = guild.get_member(uid)
+            if not member:
+                try:
+                    member = await guild.fetch_member(uid)
+                except Exception:
+                    not_found.append(raw)
+                    continue
+
+            await channel.set_permissions(member, overwrite=None, reason=f"Removed from ticket by {interaction.user}")
+            removed.append(member)
+
+        if removed:
+            await _rename_ticket_channel(channel, guild)
+
+        lines = []
+        if removed:
+            lines.append(f"✅ Removed: {', '.join(m.mention for m in removed)}")
+        if protected:
+            lines.append(f"🔒 Can't remove ticket opener: {', '.join(protected)}")
+        if not_found:
+            lines.append(f"❌ Not found: {', '.join(not_found)}")
+        if errors:
+            lines.append(f"⚠️ Invalid IDs: {', '.join(errors)}")
+
+        await interaction.followup.send("\n".join(lines) or "Nothing changed.", ephemeral=True)
+
+        if removed:
+            mentions_str = ", ".join(m.mention for m in removed)
+            e = discord.Embed(
+                description=f"➖ {mentions_str} {'has' if len(removed) == 1 else 'have'} been removed from this ticket by {interaction.user.mention}.",
+                color=0xf04747,
+                timestamp=datetime.now(timezone.utc),
+            )
+            await channel.send(embed=e)
+
+
+# ── Shared channel rename helper ──────────────────────────────────────────────
+
+async def _rename_ticket_channel(channel: discord.TextChannel, guild: discord.Guild):
+    """Rebuild the ticket channel name from opener + all explicitly added members."""
+    opener_id = None
+    opener_name = channel.name.removeprefix("ticket-")
+    if channel.topic:
+        try:
+            opener_id = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
+            opener_member = guild.get_member(opener_id)
+            if opener_member:
+                opener_name = opener_member.name.lower()
+        except Exception:
+            pass
+
+    added_names = []
+    for target, overwrite in channel.overwrites.items():
+        if not isinstance(target, discord.Member):
+            continue
+        if target == guild.me:
+            continue
+        if opener_id and target.id == opener_id:
+            continue
+        if overwrite.view_channel:
+            added_names.append(target.name.lower())
+
+    added_names.sort()
+    parts = [opener_name] + added_names
+    new_name = "ticket-" + "-".join(parts)[:90]
+
+    if channel.name != new_name:
+        try:
+            await channel.edit(name=new_name, reason="Ticket users updated")
+        except discord.HTTPException:
+            pass
 
 
 
@@ -243,45 +459,7 @@ async def handle_ticket_mention(message: discord.Message):
     if not newly_added:
         return
 
-    # Rebuild channel name: ticket-<opener>-<added1>-<added2>-…
-    # Extract opener name from the current channel name (strip "ticket-" prefix)
-    base = channel.name.removeprefix("ticket-")
-    # Also strip names that were already appended in a previous call
-    # We anchor on the opener recorded in the topic
-    opener_name = base  # fallback
-    if channel.topic:
-        try:
-            opener_id = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
-            opener_member = guild.get_member(opener_id)
-            if opener_member:
-                opener_name = opener_member.name.lower()
-        except Exception:
-            pass
-
-    # Collect all non-opener names that now have explicit access
-    added_names = []
-    for target, overwrite in channel.overwrites.items():
-        if isinstance(target, discord.Member) and target != guild.me:
-            opener_id_check = None
-            if channel.topic:
-                try:
-                    opener_id_check = int(channel.topic.split("opener:")[1].split(" |")[0].strip())
-                except Exception:
-                    pass
-            if opener_id_check and target.id == opener_id_check:
-                continue
-            if overwrite.view_channel:
-                added_names.append(target.name.lower())
-
-    added_names.sort()
-    parts = [opener_name] + added_names
-    new_name = "ticket-" + "-".join(parts)[:90]  # Discord channel name limit is 100 chars
-
-    if channel.name != new_name:
-        try:
-            await channel.edit(name=new_name, reason=f"Ticket updated with added users by {message.author}")
-        except discord.HTTPException:
-            pass
+    await _rename_ticket_channel(channel, guild)
 
     # Notify in channel
     mentions_str = ", ".join(u.mention for u in newly_added)
