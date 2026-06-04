@@ -113,6 +113,9 @@ class TicketPanelView(discord.ui.View):
         await interaction.response.send_message("🔒 Closing ticket and sending transcript...", ephemeral=False)
         status_msg = await interaction.original_response()
 
+        guild = interaction.guild
+        opener = guild.get_member(opener_id) if opener_id else None
+
         # Build transcript (excluding bot messages)
         lines = []
         async for msg in channel.history(limit=500, oldest_first=True):
@@ -124,22 +127,72 @@ class TicketPanelView(discord.ui.View):
                 lines.append(f"[{ts}] {msg.author} (attachment): {a.url}")
 
         transcript = "\n".join(lines)
+        transcript_file = lambda: discord.File(io.BytesIO(transcript.encode()), filename=f"transcript-{channel.name}.txt")
 
-        # DM opener
-        if opener_id:
-            opener = interaction.guild.get_member(opener_id)
-            if opener:
-                try:
-                    dm_embed = discord.Embed(
-                        title="🎫 Your ticket has been closed",
-                        description=f"Here's the transcript from your ticket in **{interaction.guild.name}**.",
-                        color=0x5865f2,
-                        timestamp=datetime.now(timezone.utc),
-                    )
-                    file = discord.File(io.BytesIO(transcript.encode()), filename=f"transcript-{channel.name}.txt")
-                    await opener.send(embed=dm_embed, file=file)
-                except discord.Forbidden:
-                    pass
+        dm_errors = []
+
+        # Figure out which members were individually added (not opener, not bot, not staff role)
+        staff_role_ids = cfg.get("ticket_staff_roles", [])
+        added_members = []
+        for target, overwrite in list(channel.overwrites.items()):
+            if not isinstance(target, discord.Member):
+                continue
+            if target == guild.me:
+                continue
+            if opener_id and target.id == opener_id:
+                continue
+            # Skip anyone whose access comes purely from a staff role
+            has_staff_role = any(str(r.id) in [str(x) for x in staff_role_ids] for r in target.roles)
+            if has_staff_role:
+                continue
+            if overwrite.view_channel:
+                added_members.append(target)
+
+        # DM opener with transcript
+        if opener:
+            try:
+                dm_embed = discord.Embed(
+                    title="🎫 Your ticket has been closed",
+                    description=f"Here's the transcript from your ticket in **{guild.name}**.",
+                    color=0x5865f2,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                await opener.send(embed=dm_embed, file=transcript_file())
+            except discord.Forbidden:
+                dm_errors.append(f"❌ Couldn't send transcript to **{opener}** (DMs closed)")
+            except Exception as exc:
+                dm_errors.append(f"❌ Couldn't send transcript to **{opener}**: {exc}")
+
+        # DM added users with transcript then revoke their access
+        for member in added_members:
+            try:
+                dm_embed = discord.Embed(
+                    title="🎫 A ticket you were added to has been closed",
+                    description=f"Here's the transcript from the ticket in **{guild.name}**.",
+                    color=0x5865f2,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                await member.send(embed=dm_embed, file=transcript_file())
+            except discord.Forbidden:
+                dm_errors.append(f"❌ Couldn't send transcript to **{member}** (DMs closed)")
+            except Exception as exc:
+                dm_errors.append(f"❌ Couldn't send transcript to **{member}**: {exc}")
+
+            # Strip their channel permission overwrite
+            try:
+                await channel.set_permissions(member, overwrite=None, reason="Ticket closed — removing added user")
+            except Exception:
+                pass
+
+        # Post any DM errors in the channel so staff can see
+        if dm_errors:
+            err_embed = discord.Embed(
+                title="⚠️ Transcript delivery issues",
+                description="\n".join(dm_errors),
+                color=0xfaa61a,
+                timestamp=datetime.now(timezone.utc),
+            )
+            await channel.send(embed=err_embed)
 
         # Disable all buttons on the panel
         for child in self.children:
@@ -148,15 +201,22 @@ class TicketPanelView(discord.ui.View):
                 child.label = "Closed"
         await interaction.message.edit(view=self)
 
+        # Remove opener's individual access (they have the transcript now)
+        if opener:
+            try:
+                await channel.set_permissions(opener, overwrite=None, reason="Ticket closed — opener received transcript")
+            except Exception:
+                pass
+
         # Move to closed category instead of deleting
         closed_cat_id = cfg.get("ticket_closed_category")
         if closed_cat_id:
-            closed_category = interaction.guild.get_channel(int(closed_cat_id))
+            closed_category = guild.get_channel(int(closed_cat_id))
             if closed_category:
                 overwrites = channel.overwrites
-                opener = interaction.guild.get_member(opener_id) if opener_id else None
-                if opener and opener in overwrites:
-                    overwrites[opener] = discord.PermissionOverwrite(view_channel=True, send_messages=False, read_message_history=True)
+                # Explicitly deny opener in case category grants access
+                if opener:
+                    overwrites[opener] = discord.PermissionOverwrite(view_channel=False)
                 await channel.edit(
                     name=f"closed-{channel.name.removeprefix('ticket-')}",
                     category=closed_category,
