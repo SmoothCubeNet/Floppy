@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import state
 import config
-from tickets import OpenTicketView, TicketPanelView, post_ticket_panel
+from tickets import OpenTicketView, TicketPanelView, post_ticket_panel, handle_ticket_mention
 import commands
 
 load_dotenv()
@@ -262,6 +262,10 @@ class Floppy(discord.Client):
         elif before.channel != after.channel:
             await self.log(member.guild, make_embed(YELLOW, "Switched Voice", fields=[("Member", f"{member.mention} ({member})", True), ("From", before.channel.name, True), ("To", after.channel.name, True)], footer=f"ID: {member.id}"))
 
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not message.guild:
+            return
+        await handle_ticket_mention(message)
 
 def get_bot():
     token = os.getenv("TOKEN")
