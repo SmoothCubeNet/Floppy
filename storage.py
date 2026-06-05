@@ -3,6 +3,7 @@ storage.py — Discord-backed persistent storage for Floppy.
 
 How it works:
   - There is one text channel called "floppystorage" (private, bot-only).
+    If it doesn't exist, the bot creates it automatically on startup.
   - Each "table" gets its own private thread inside that channel.
   - The thread always contains exactly ONE message from the bot.
   - That message has a single file attachment: <table>.json
@@ -11,8 +12,8 @@ How it works:
   - On bot startup: call load_all() to pull everything into memory.
 
 Adding a new table in the future:
-  1. Call `await storage.read("mytable")` / `await storage.write("mytable", data)`
-  That's it — the thread is created automatically if it doesn't exist.
+  Just call `await storage.read("mytable")` / `await storage.write("mytable", data)`.
+  The channel and thread are both created automatically if they don't exist.
 """
 
 import io
@@ -34,9 +35,35 @@ _threads: dict[str, discord.Thread] = {}
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-async def _get_storage_channel(guild: discord.Guild) -> discord.TextChannel | None:
-    """Find the #floppystorage channel."""
-    return discord.utils.get(guild.text_channels, name=STORAGE_CHANNEL_NAME)
+async def _get_or_create_storage_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    """Find #floppystorage, or create it as a private bot-only channel if missing."""
+    channel = discord.utils.get(guild.text_channels, name=STORAGE_CHANNEL_NAME)
+    if channel:
+        return channel
+
+    try:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+                create_private_threads=True,
+                send_messages_in_threads=True,
+                manage_threads=True,
+            ),
+        }
+        channel = await guild.create_text_channel(
+            name=STORAGE_CHANNEL_NAME,
+            overwrites=overwrites,
+            reason="Floppy auto-created storage channel",
+        )
+        state.add_log(f"Storage: created #{STORAGE_CHANNEL_NAME} automatically")
+        return channel
+    except Exception as e:
+        state.add_log(f"Storage: failed to create #{STORAGE_CHANNEL_NAME} — {e}")
+        return None
 
 
 async def _get_or_create_thread(guild: discord.Guild, table: str) -> discord.Thread | None:
@@ -44,12 +71,11 @@ async def _get_or_create_thread(guild: discord.Guild, table: str) -> discord.Thr
     if table in _threads:
         return _threads[table]
 
-    channel = await _get_storage_channel(guild)
+    channel = await _get_or_create_storage_channel(guild)
     if not channel:
-        state.add_log(f"Storage: #{STORAGE_CHANNEL_NAME} channel not found — create it and make it bot-only")
         return None
 
-    # Look for an existing thread with this name.
+    # Look for an existing active thread with this name.
     for thread in channel.threads:
         if thread.name == table:
             _threads[table] = thread
@@ -171,12 +197,11 @@ def set_cached(table: str, data: dict):
 
 async def load_all(guild: discord.Guild):
     """
-    On startup: find all existing threads in #floppystorage and load them.
-    This populates the cache so the bot is ready to serve reads immediately.
+    On startup: ensure #floppystorage exists, then load all table threads into cache.
     """
-    channel = await _get_storage_channel(guild)
+    channel = await _get_or_create_storage_channel(guild)
     if not channel:
-        state.add_log(f"Storage: #{STORAGE_CHANNEL_NAME} not found — storage disabled until channel is created")
+        state.add_log("Storage: startup aborted — could not get/create storage channel")
         return
 
     threads_found = list(channel.threads)

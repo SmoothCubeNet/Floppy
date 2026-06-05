@@ -242,8 +242,8 @@ PAGE = """
       <p style="font-size:0.88rem;color:var(--muted);line-height:1.6;">
         Members earn <strong style="color:var(--text)">15–25 XP</strong> per message (once per minute, to prevent spam).
         Level thresholds follow the formula <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">5n² + 50n + 100</code> — so level 1 needs 155 XP, level 2 needs 310 XP, and so on.
-        XP is stored in <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">config.json</code> — no external database needed.
-        Members can check their progress with <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">/rank</code>.
+        XP is stored in <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">#floppystorage</code> on Discord — no files or databases on the bot.
+        XP is wiped automatically when a member leaves. Members can check their progress with <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">/rank</code>.
       </p>
     </div>
     <div class="btn-row">
