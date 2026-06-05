@@ -86,7 +86,12 @@ class Floppy(discord.Client):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
         for guild in self.guilds:
-            await self.tree.sync(guild=guild)
+            # Wipe whatever Discord has registered for this guild, then
+            # sync the current tree — this removes stale commands like /rank.
+            self.tree.clear_commands(guild=guild)
+            await self.tree.sync(guild=guild)  # push the empty set
+            await self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)  # push the real set
             state.add_log(f"Commands synced to {guild.name}")
             try:
                 invites = await guild.fetch_invites()
