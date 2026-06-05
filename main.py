@@ -87,10 +87,13 @@ class Floppy(discord.Client):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
         for guild in self.guilds:
-            # Register commands directly to this guild and sync.
-            # This replaces whatever Discord had (including stale /rank).
+            # Directly overwrite Discord's registered commands via HTTP —
+            # this is the only guaranteed way to remove stale commands.
             commands.setup(self, guild=discord.Object(id=guild.id))
-            await self.tree.sync(guild=guild)
+            await self.http.bulk_upsert_guild_commands(
+                self.user.id, guild.id, []
+            )  # wipe everything Discord has for this guild
+            await self.tree.sync(guild=guild)  # push the current set
             state.add_log(f"Commands synced to {guild.name}")
             try:
                 invites = await guild.fetch_invites()
