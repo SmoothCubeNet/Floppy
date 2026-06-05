@@ -18,6 +18,7 @@ DEFAULTS = {
     "member_count_channel": None,
     "member_count_label": "👥 Members: {count}",
     "level_channel": None,
+    "commands_channel": None,
     # NOTE: XP data is stored in Discord (#floppystorage), not here.
 }
 

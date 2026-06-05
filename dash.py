@@ -71,6 +71,7 @@ PAGE = """
   <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
   <div class="nav-item" onclick="showPage('membercount', this)">📊 Member Count</div>
   <div class="nav-item" onclick="showPage('levelling', this)">⬆️ Levelling</div>
+  <div class="nav-item" onclick="showPage('commands', this)">💬 Commands</div>
   <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
   <div class="nav-item" onclick="showPage('logs', this)">🖥️ Logs</div>
 </div>
@@ -252,6 +253,28 @@ PAGE = """
     </div>
   </div>
 
+  <!-- COMMANDS PAGE -->
+  <div class="page" id="page-commands">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>💬 Commands</h2>
+        <p class="subtitle">Restrict bot commands to a specific channel.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Commands Channel</div>
+      <div class="field">
+        <label>Restrict commands to</label>
+        <select id="commands_channel" onchange="markDirty()"><option value="">— no restriction —</option></select>
+        <div class="hint">When set, users can only run bot commands in this channel. Admins are exempt. Any plain message sent here by a non-admin will be automatically deleted.</div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <span class="unsaved-badge" id="unsaved-commands">⚠️ Unsaved changes</span>
+      <button class="btn" onclick="save()">Save Changes</button>
+    </div>
+  </div>
+
   <!-- AUDIT PAGE -->
   <div class="page" id="page-audit">
     <div class="page-header">
@@ -398,6 +421,7 @@ PAGE = """
       populateSelect('join_role', guildData.roles, cfg.join_role);
       populateSelect('member_count_channel', guildData.voice_channels, cfg.member_count_channel);
       populateSelect('level_channel', guildData.channels, cfg.level_channel);
+      populateSelect('commands_channel', guildData.channels, cfg.commands_channel);
       populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
     } catch(e) {}
   }
@@ -441,6 +465,7 @@ PAGE = """
       member_count_channel: document.getElementById('member_count_channel').value || null,
       member_count_label: document.getElementById('member_count_label').value || null,
       level_channel: document.getElementById('level_channel').value || null,
+      commands_channel: document.getElementById('commands_channel').value || null,
     };
     const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (res.ok) {

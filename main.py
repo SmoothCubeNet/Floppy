@@ -270,6 +270,19 @@ class Floppy(discord.Client):
     async def on_message(self, message: discord.Message):
         if message.author.bot or not message.guild:
             return
+
+        # If a commands channel is set, delete any plain messages sent there
+        # by non-admins (slash commands don't trigger on_message so they're fine).
+        cfg = config.load()
+        commands_ch_id = commands.get_commands_channel_id(cfg)
+        if commands_ch_id and message.channel.id == commands_ch_id:
+            if not commands.is_admin(message.author):
+                try:
+                    await message.delete()
+                except discord.Forbidden:
+                    pass
+                return  # don't process XP for deleted messages
+
         await handle_ticket_mention(message)
         await levelling.handle_message(message)
 
