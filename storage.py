@@ -115,15 +115,16 @@ async def _get_or_create_thread(guild: discord.Guild, table: str) -> discord.Thr
         return None
 
 
-async def _find_storage_message(thread: discord.Thread) -> discord.Message | None:
-    """Return the single bot-owned storage message in the thread, or None."""
+async def _find_storage_messages(thread: discord.Thread) -> list:
+    """Return ALL bot-owned storage messages in the thread (newest first)."""
+    found = []
     try:
-        async for msg in thread.history(limit=20):
+        async for msg in thread.history(limit=50):
             if msg.author == thread.guild.me and msg.attachments:
-                return msg
+                found.append(msg)
     except Exception:
         pass
-    return None
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -136,16 +137,23 @@ async def read(guild: discord.Guild, table: str) -> dict:
     if not thread:
         return {}
 
-    msg = await _find_storage_message(thread)
-    if not msg:
+    msgs = await _find_storage_messages(thread)
+    if not msgs:
         _cache[table] = {}
         return {}
 
+    # msgs is newest-first; read the newest, delete any extras
     try:
-        raw = await msg.attachments[0].read()
+        raw = await msgs[0].attachments[0].read()
         data = json.loads(raw.decode("utf-8"))
         _cache[table] = data
         state.add_log(f"Storage: loaded '{table}' ({len(data)} entries)")
+        # Clean up any duplicate messages
+        for old in msgs[1:]:
+            try:
+                await old.delete()
+            except Exception:
+                pass
         return data
     except Exception as e:
         state.add_log(f"Storage: failed to read '{table}' — {e}")
@@ -161,8 +169,9 @@ async def write(guild: discord.Guild, table: str, data: dict):
     if not thread:
         return
 
-    old_msg = await _find_storage_message(thread)
-    if old_msg:
+    # Delete ALL existing bot messages to avoid stale duplicates
+    old_msgs = await _find_storage_messages(thread)
+    for old_msg in old_msgs:
         try:
             await old_msg.delete()
         except Exception:
