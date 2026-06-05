@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import state
 import config
+import storage
 from tickets import OpenTicketView, TicketPanelView, post_ticket_panel, handle_ticket_mention
 import commands
+import levelling
 
 load_dotenv()
 
@@ -90,6 +92,7 @@ class Floppy(discord.Client):
                 self.invite_cache[guild.id] = {inv.code: inv.uses for inv in invites}
             except Exception:
                 pass
+            await storage.load_all(guild)
         state.add_log("Ticket panel views registered (panel NOT re-sent on boot)")
         print(f"Online as {self.user}")
 
@@ -162,6 +165,7 @@ class Floppy(discord.Client):
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
                 await channel.send(text)
 
+        await levelling.wipe_user(member.guild, member.id)
         await self.update_member_count(member.guild)
         state.add_log(f"Member left: {member}")
         await self.log(member.guild, make_embed(RED, "Member Left", fields=[
@@ -266,6 +270,7 @@ class Floppy(discord.Client):
         if message.author.bot or not message.guild:
             return
         await handle_ticket_mention(message)
+        await levelling.handle_message(message)
 
 def get_bot():
     token = os.getenv("TOKEN")

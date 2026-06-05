@@ -70,6 +70,7 @@ PAGE = """
   <div class="nav-item" onclick="showPage('roles', this)">🔖 Join Role</div>
   <div class="nav-item" onclick="showPage('tickets', this)">🎫 Tickets</div>
   <div class="nav-item" onclick="showPage('membercount', this)">📊 Member Count</div>
+  <div class="nav-item" onclick="showPage('levelling', this)">⬆️ Levelling</div>
   <div class="nav-item" onclick="showPage('audit', this)">📋 Audit Log</div>
   <div class="nav-item" onclick="showPage('logs', this)">🖥️ Logs</div>
 </div>
@@ -220,6 +221,37 @@ PAGE = """
     </div>
   </div>
 
+  <!-- LEVELLING PAGE -->
+  <div class="page" id="page-levelling">
+    <div class="page-header">
+      <div class="page-header-left">
+        <h2>⬆️ Levelling</h2>
+        <p class="subtitle">Reward active members with XP and level-up announcements.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Level-up Channel</div>
+      <div class="field">
+        <label>Announce level-ups in</label>
+        <select id="level_channel" onchange="markDirty()"><option value="">— same channel as the message —</option></select>
+        <div class="hint">When a member levels up, the announcement is sent here. If left blank it posts in whatever channel the message was sent in.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">How it works</div>
+      <p style="font-size:0.88rem;color:var(--muted);line-height:1.6;">
+        Members earn <strong style="color:var(--text)">15–25 XP</strong> per message (once per minute, to prevent spam).
+        Level thresholds follow the formula <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">5n² + 50n + 100</code> — so level 1 needs 155 XP, level 2 needs 310 XP, and so on.
+        XP is stored in <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">config.json</code> — no external database needed.
+        Members can check their progress with <code style="background:var(--surface2);padding:0.1rem 0.4rem;border-radius:4px;">/rank</code>.
+      </p>
+    </div>
+    <div class="btn-row">
+      <span class="unsaved-badge" id="unsaved-levelling">⚠️ Unsaved changes</span>
+      <button class="btn" onclick="save()">Save Changes</button>
+    </div>
+  </div>
+
   <!-- AUDIT PAGE -->
   <div class="page" id="page-audit">
     <div class="page-header">
@@ -365,6 +397,7 @@ PAGE = """
       populateSelect('ticket_closed_category', guildData.categories, cfg.ticket_closed_category);
       populateSelect('join_role', guildData.roles, cfg.join_role);
       populateSelect('member_count_channel', guildData.voice_channels, cfg.member_count_channel);
+      populateSelect('level_channel', guildData.channels, cfg.level_channel);
       populateStaffRoles(guildData.roles, cfg.ticket_staff_roles);
     } catch(e) {}
   }
@@ -407,6 +440,7 @@ PAGE = """
       ticket_staff_roles: staffRoles,
       member_count_channel: document.getElementById('member_count_channel').value || null,
       member_count_label: document.getElementById('member_count_label').value || null,
+      level_channel: document.getElementById('level_channel').value || null,
     };
     const res = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (res.ok) {

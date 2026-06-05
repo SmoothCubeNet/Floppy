@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 import config
+import levelling
 
 def setup(client: discord.Client):
     tree = app_commands.CommandTree(client)
@@ -69,5 +70,25 @@ def setup(client: discord.Client):
                 pass
 
         await interaction.followup.send(f"🗑️ Deleted **{deleted}** message(s).", ephemeral=True)
+
+    @tree.command(name="rank", description="Check your (or another member's) XP and level")
+    @app_commands.describe(member="The member to check (defaults to you)")
+    async def rank(interaction: discord.Interaction, member: discord.Member = None):
+        target = member or interaction.user
+        total_xp = levelling.get_user_xp(target.id)
+        level, xp_into, xp_needed = levelling.xp_progress(total_xp)
+
+        bar_filled = int((xp_into / xp_needed) * 10) if xp_needed else 10
+        bar = "█" * bar_filled + "░" * (10 - bar_filled)
+
+        embed = discord.Embed(
+            title=f"📊 {target.display_name}'s Rank",
+            color=0x5865f2,
+        )
+        embed.add_field(name="Level", value=str(level), inline=True)
+        embed.add_field(name="Total XP", value=str(total_xp), inline=True)
+        embed.add_field(name="Progress", value=f"`{bar}` {xp_into}/{xp_needed} XP", inline=False)
+        embed.set_thumbnail(url=target.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
 
     return tree
