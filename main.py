@@ -85,8 +85,9 @@ class Floppy(discord.Client):
     async def on_ready(self):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
-        await self.tree.sync()
         for guild in self.guilds:
+            await self.tree.sync(guild=guild)
+            state.add_log(f"Commands synced to {guild.name}")
             try:
                 invites = await guild.fetch_invites()
                 self.invite_cache[guild.id] = {inv.code: inv.uses for inv in invites}
