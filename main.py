@@ -1,5 +1,6 @@
 import os
 import discord
+from discord import app_commands
 from discord.ext import tasks
 from itertools import cycle
 from datetime import datetime, timezone
@@ -36,7 +37,7 @@ class Floppy(discord.Client):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.invite_cache = {}
-        self.tree = commands.setup(self)
+        self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
         self.add_view(OpenTicketView())
@@ -86,12 +87,10 @@ class Floppy(discord.Client):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
         for guild in self.guilds:
-            # Wipe whatever Discord has registered for this guild, then
-            # sync the current tree — this removes stale commands like /rank.
-            self.tree.clear_commands(guild=guild)
-            await self.tree.sync(guild=guild)  # push the empty set
-            await self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)  # push the real set
+            # Register commands directly to this guild and sync.
+            # This replaces whatever Discord had (including stale /rank).
+            commands.setup(self, guild=discord.Object(id=guild.id))
+            await self.tree.sync(guild=guild)
             state.add_log(f"Commands synced to {guild.name}")
             try:
                 invites = await guild.fetch_invites()

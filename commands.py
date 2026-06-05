@@ -45,17 +45,17 @@ async def enforce_commands_channel(interaction: discord.Interaction) -> bool:
 # Command tree
 # ---------------------------------------------------------------------------
 
-def setup(client: discord.Client):
+def setup(client: discord.Client, guild: discord.Object = None):
     tree = app_commands.CommandTree(client)
 
-    @tree.command(name="ping", description="Check the bot's latency")
+    @tree.command(name="ping", guild=guild, description="Check the bot's latency")
     async def ping(interaction: discord.Interaction):
         if not await enforce_commands_channel(interaction):
             return
         latency = round(client.latency * 1000)
         await interaction.response.send_message(f"🏓 Pong! Latency is **{latency}ms**")
 
-    @tree.command(name="purge", description="Delete messages in this channel from a given message ID up to now")
+    @tree.command(name="purge", description="Delete messages in this channel from a given message ID up to now", guild=guild)
     @app_commands.describe(message_id="The ID of the oldest message to delete (right-click a message → Copy Message ID)")
     async def purge(interaction: discord.Interaction, message_id: str):
         cfg = config.load()
@@ -111,7 +111,7 @@ def setup(client: discord.Client):
 
         await interaction.followup.send(f"🗑️ Deleted **{deleted}** message(s).", ephemeral=True)
 
-    @tree.command(name="level", description="Check your (or another member's) XP and level")
+    @tree.command(name="level", description="Check your (or another member's) XP and level", guild=guild)
     @app_commands.describe(member="The member to check (defaults to you)")
     async def level(interaction: discord.Interaction, member: discord.Member = None):
         if not await enforce_commands_channel(interaction):
