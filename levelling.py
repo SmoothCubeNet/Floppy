@@ -5,7 +5,7 @@ import state
 import config
 
 # ---------------------------------------------------------------------------
-# XP formula: 5n² + 50n + 100  (same as MEE6 — familiar to most members)
+# XP formula: 5n² + 50n + 100
 # ---------------------------------------------------------------------------
 
 XP_PER_MESSAGE_MIN = 15
