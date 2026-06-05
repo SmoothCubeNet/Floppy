@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 import state
 import config
 import storage
-from tickets import OpenTicketView, TicketPanelView, post_ticket_panel, handle_ticket_mention
 import commands
 import levelling
+from tickets import OpenTicketView, TicketPanelView, handle_ticket_mention
 
 load_dotenv()
 
@@ -32,6 +32,7 @@ GREEN  = 0x43b581
 RED    = 0xf04747
 YELLOW = 0xfaa61a
 BLUE   = 0x5865f2
+
 
 class Floppy(discord.Client):
     def __init__(self, *args, **kwargs):
@@ -86,21 +87,23 @@ class Floppy(discord.Client):
     async def on_ready(self):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
+
         for guild in self.guilds:
-            # Directly overwrite Discord's registered commands via HTTP —
-            # this is the only guaranteed way to remove stale commands.
-            commands.setup(self, guild=discord.Object(id=guild.id))
-            await self.http.bulk_upsert_guild_commands(
-                self.user.id, guild.id, []
-            )  # wipe everything Discord has for this guild
-            await self.tree.sync(guild=guild)  # push the current set
+            # Register all commands onto self.tree for this guild, then sync.
+            # Using guild-specific commands means changes are instant with no propagation delay.
+            g = discord.Object(id=guild.id)
+            commands.register(self.tree, g)
+            await self.tree.sync(guild=g)
             state.add_log(f"Commands synced to {guild.name}")
+
             try:
                 invites = await guild.fetch_invites()
                 self.invite_cache[guild.id] = {inv.code: inv.uses for inv in invites}
             except Exception:
                 pass
+
             await storage.load_all(guild)
+
         state.add_log("Ticket panel views registered (panel NOT re-sent on boot)")
         print(f"Online as {self.user}")
 
@@ -123,14 +126,12 @@ class Floppy(discord.Client):
         if member.bot:
             return
         cfg = config.load()
-        used_invite = None
         try:
             new_invites = await member.guild.fetch_invites()
             new_map = {inv.code: inv.uses for inv in new_invites}
             old_map = self.invite_cache.get(member.guild.id, {})
             for code, uses in new_map.items():
                 if uses > old_map.get(code, 0):
-                    used_invite = next((i for i in new_invites if i.code == code), None)
                     break
             self.invite_cache[member.guild.id] = new_map
         except Exception:
@@ -278,8 +279,7 @@ class Floppy(discord.Client):
         if message.author.bot or not message.guild:
             return
 
-        # If a commands channel is set, delete any plain messages sent there
-        # by non-admins (slash commands don't trigger on_message so they're fine).
+        # Delete non-command plain messages in the commands channel (non-admins only).
         cfg = config.load()
         commands_ch_id = commands.get_commands_channel_id(cfg)
         if commands_ch_id and message.channel.id == commands_ch_id:
@@ -288,10 +288,11 @@ class Floppy(discord.Client):
                     await message.delete()
                 except discord.Forbidden:
                     pass
-                return  # don't process XP for deleted messages
+                return
 
         await handle_ticket_mention(message)
         await levelling.handle_message(message)
+
 
 def get_bot():
     token = os.getenv("TOKEN")
