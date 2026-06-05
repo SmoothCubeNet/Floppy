@@ -178,7 +178,6 @@ class Floppy(discord.Client):
                 text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
                 await channel.send(text)
 
-        await levelling.wipe_user(member.guild, member.id)
         await self.update_member_count(member.guild)
         state.add_log(f"Member left: {member}")
         await self.log(member.guild, make_embed(RED, "Member Left", fields=[
@@ -283,16 +282,16 @@ class Floppy(discord.Client):
         if message.author.bot or not message.guild:
             return
 
-        # Delete non-command plain messages in the commands channel (non-admins only).
+        # Delete any plain message in the commands channel — slash commands never
+        # trigger on_message, so every message here is a non-command and should go.
         cfg = config.load()
         commands_ch_id = commands.get_commands_channel_id(cfg)
         if commands_ch_id and message.channel.id == commands_ch_id:
-            if not commands.is_admin(message.author):
-                try:
-                    await message.delete()
-                except discord.Forbidden:
-                    pass
-                return
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+            return
 
         await handle_ticket_mention(message)
         await levelling.handle_message(message)
