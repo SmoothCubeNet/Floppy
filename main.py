@@ -89,9 +89,13 @@ class Floppy(discord.Client):
         state.add_log(f"Bot online as {self.user}")
 
         for guild in self.guilds:
-            # Register all commands onto self.tree for this guild, then sync.
-            # Using guild-specific commands means changes are instant with no propagation delay.
             g = discord.Object(id=guild.id)
+            # Clear any stale global commands (removes old /rank etc.) — once is enough
+            # but harmless to run every boot.
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()  # push empty global set
+            # Clear and re-register guild commands fresh every boot to avoid duplicates.
+            self.tree.clear_commands(guild=g)
             commands.register(self.tree, g)
             await self.tree.sync(guild=g)
             state.add_log(f"Commands synced to {guild.name}")
