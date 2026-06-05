@@ -1,20 +1,5 @@
 """
 storage.py — Discord-backed persistent storage for Floppy.
-
-How it works:
-  - There is one text channel called "floppystorage" (private, bot-only).
-    If it doesn't exist, the bot creates it automatically on startup.
-  - Each "table" gets its own private thread inside that channel.
-    The server owner is added to every thread so they can inspect the data.
-  - The thread always contains exactly ONE message from the bot.
-  - That message has a single file attachment: <table>.json
-  - To read: download & parse the attachment.
-  - To write: delete the old message, post a new one with the updated file.
-  - On bot startup: call load_all() to pull everything into memory.
-    Known tables are also eagerly created so they exist even with no data yet.
-
-Adding a new table in the future:
-  Add its name to KNOWN_TABLES and it'll be created on next startup.
 """
 
 import io
