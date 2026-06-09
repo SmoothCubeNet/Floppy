@@ -102,3 +102,70 @@ def register(tree: app_commands.CommandTree, guild: discord.Object):
         embed.add_field(name="Progress", value=f"`{bar}` {xp_into}/{xp_needed} XP", inline=False)
         embed.set_thumbnail(url=target.display_avatar.url)
         await interaction.response.send_message(embed=embed)
+
+    @tree.command(name="levelboard", description="Show the server's top members by XP", guild=guild)
+    @app_commands.describe(page="Page number (10 entries per page, default: 1)")
+    async def levelboard(interaction: discord.Interaction, page: int = 1):
+        if not await enforce_commands_channel(interaction):
+            return
+
+        import storage
+        data = storage.get_cached(levelling.TABLE)
+
+        if not data:
+            await interaction.response.send_message(
+                "📭 No XP data yet — start chatting to earn some!", ephemeral=True
+            )
+            return
+
+        # Sort all users by XP descending
+        sorted_users = sorted(data.items(), key=lambda x: x[1], reverse=True)
+        total_users = len(sorted_users)
+        per_page = 10
+        total_pages = max(1, (total_users + per_page - 1) // per_page)
+
+        if page < 1 or page > total_pages:
+            await interaction.response.send_message(
+                f"❌ Invalid page. There are **{total_pages}** page(s) of results.", ephemeral=True
+            )
+            return
+
+        start = (page - 1) * per_page
+        page_entries = sorted_users[start:start + per_page]
+
+        # Find the calling user's rank
+        caller_rank = next(
+            (i + 1 for i, (uid, _) in enumerate(sorted_users) if uid == str(interaction.user.id)),
+            None,
+        )
+
+        # Medal emojis for the podium
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+        lines = []
+        for i, (user_id, xp) in enumerate(page_entries):
+            rank = start + i + 1
+            medal = medals.get(rank, f"`#{rank}`")
+
+            # Try to resolve the member; fall back to a plain mention if not cached
+            member = interaction.guild.get_member(int(user_id))
+            name = member.display_name if member else f"<@{user_id}>"
+
+            lv, _, _ = levelling.xp_progress(xp)
+            lines.append(f"{medal} **{name}** — Lvl {lv} · {xp:,} XP")
+
+        description = "\n".join(lines)
+
+        embed = discord.Embed(
+            title="🏆 Level Leaderboard",
+            description=description,
+            color=0x5865f2,
+        )
+        embed.set_footer(
+            text=(
+                f"Page {page}/{total_pages} · {total_users} members ranked"
+                + (f" · You are #{caller_rank}" if caller_rank else "")
+            )
+        )
+
+        await interaction.response.send_message(embed=embed)
