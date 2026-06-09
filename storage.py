@@ -1,5 +1,9 @@
 """
 storage.py — Discord-backed persistent storage for Floppy.
+
+Data is stored directly in #floppystorage as pinned messages with JSON
+attachments — one message per table, named by the table (e.g. "levelling").
+No threads are used.
 """
 
 import io
@@ -15,8 +19,11 @@ KNOWN_TABLES = ["levelling"]
 # In-memory cache: { "levelling": { "user_id": xp, ... }, ... }
 _cache: dict[str, dict] = {}
 
-# Thread objects keyed by table name.
-_threads: dict[str, discord.Thread] = {}
+# Cached channel object.
+_channel: discord.TextChannel | None = None
+
+# Message ID for each table's storage message: { "levelling": message_id }
+_msg_ids: dict[str, int] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -25,91 +32,49 @@ _threads: dict[str, discord.Thread] = {}
 
 async def _get_or_create_storage_channel(guild: discord.Guild) -> discord.TextChannel | None:
     """Find #floppystorage, or create it as a private bot-only channel if missing."""
+    global _channel
+    if _channel and _channel.guild.id == guild.id:
+        return _channel
+
     channel = discord.utils.get(guild.text_channels, name=STORAGE_CHANNEL_NAME)
-    if channel:
-        return channel
-
-    try:
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            guild.me: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                manage_messages=True,
-                create_private_threads=True,
-                send_messages_in_threads=True,
-                manage_threads=True,
-            ),
-        }
-        channel = await guild.create_text_channel(
-            name=STORAGE_CHANNEL_NAME,
-            overwrites=overwrites,
-            reason="Floppy auto-created storage channel",
-        )
-        state.add_log(f"Storage: created #{STORAGE_CHANNEL_NAME} automatically")
-        return channel
-    except Exception as e:
-        state.add_log(f"Storage: failed to create #{STORAGE_CHANNEL_NAME} — {e}")
-        return None
-
-
-async def _get_or_create_thread(guild: discord.Guild, table: str) -> discord.Thread | None:
-    """Return the private thread for this table, creating it if needed.
-    The server owner is added automatically so they can see it."""
-    if table in _threads:
-        return _threads[table]
-
-    channel = await _get_or_create_storage_channel(guild)
     if not channel:
-        return None
+        try:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                guild.me: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    manage_messages=True,
+                ),
+            }
+            channel = await guild.create_text_channel(
+                name=STORAGE_CHANNEL_NAME,
+                overwrites=overwrites,
+                reason="Floppy auto-created storage channel",
+            )
+            state.add_log(f"Storage: created #{STORAGE_CHANNEL_NAME} automatically")
+        except Exception as e:
+            state.add_log(f"Storage: failed to create #{STORAGE_CHANNEL_NAME} — {e}")
+            return None
 
-    # Check active threads.
-    for thread in channel.threads:
-        if thread.name == table:
-            _threads[table] = thread
-            return thread
+    _channel = channel
+    return channel
 
-    # Check archived threads.
-    async for thread in channel.archived_threads(private=True):
-        if thread.name == table:
-            await thread.edit(archived=False)
-            _threads[table] = thread
-            return thread
 
-    # Create a new private thread.
+async def _find_table_message(channel: discord.TextChannel, table: str) -> discord.Message | None:
+    """Scan the channel for the bot's storage message for this table."""
     try:
-        thread = await channel.create_thread(
-            name=table,
-            type=discord.ChannelType.private_thread,
-            reason=f"Floppy storage: {table} table",
-        )
-        _threads[table] = thread
-        state.add_log(f"Storage: created thread '{table}'")
-
-        # Add the server owner so they can inspect/verify the data.
-        if guild.owner:
-            try:
-                await thread.add_user(guild.owner)
-            except Exception:
-                pass
-
-        return thread
+        async for msg in channel.history(limit=100):
+            if (
+                msg.author == channel.guild.me
+                and msg.attachments
+                and msg.attachments[0].filename == f"{table}.json"
+            ):
+                return msg
     except Exception as e:
-        state.add_log(f"Storage: failed to create thread '{table}' — {e}")
-        return None
-
-
-async def _find_storage_messages(thread: discord.Thread) -> list:
-    """Return ALL bot-owned storage messages in the thread (newest first)."""
-    found = []
-    try:
-        async for msg in thread.history(limit=50):
-            if msg.author == thread.guild.me and msg.attachments:
-                found.append(msg)
-    except Exception:
-        pass
-    return found
+        state.add_log(f"Storage: error scanning channel for '{table}' — {e}")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -117,66 +82,65 @@ async def _find_storage_messages(thread: discord.Thread) -> list:
 # ---------------------------------------------------------------------------
 
 async def read(guild: discord.Guild, table: str) -> dict:
-    """Load a table from Discord into memory and return it."""
-    thread = await _get_or_create_thread(guild, table)
-    if not thread:
-        return {}
+    """Load a table from #floppystorage into memory and return it."""
+    channel = await _get_or_create_storage_channel(guild)
+    if not channel:
+        return _cache.get(table, {})
 
-    msgs = await _find_storage_messages(thread)
-    if not msgs:
-        _cache[table] = {}
-        return {}
+    msg = await _find_table_message(channel, table)
+    if not msg:
+        # No data yet — that's fine, start empty.
+        state.add_log(f"Storage: no existing message for '{table}', starting fresh")
+        return _cache.get(table, {})
 
-    # msgs is newest-first; read the newest, then clean up any older duplicates.
-    # We intentionally keep msgs[0] alive at ALL times — never delete it here.
+    _msg_ids[table] = msg.id
+
     try:
-        raw = await msgs[0].attachments[0].read()
+        raw = await msg.attachments[0].read()
         data = json.loads(raw.decode("utf-8"))
         _cache[table] = data
         state.add_log(f"Storage: loaded '{table}' ({len(data)} entries)")
-        # Remove older duplicates only after we've successfully parsed the newest.
-        for old in msgs[1:]:
-            try:
-                await old.delete()
-            except Exception:
-                pass
         return data
     except Exception as e:
         state.add_log(f"Storage: failed to read '{table}' — {e}")
-        # Do NOT wipe the cache or return {} here — leave whatever we had.
         return _cache.get(table, {})
 
 
 async def write(guild: discord.Guild, table: str, data: dict):
-    """Persist data to Discord. Always writes the new message BEFORE deleting
-    old ones, so a send failure can never cause data loss."""
+    """Persist a table to #floppystorage.
+
+    Sends the new message FIRST, then deletes the old one — so a failed
+    send never causes data loss.
+    """
     _cache[table] = data
 
-    thread = await _get_or_create_thread(guild, table)
-    if not thread:
+    channel = await _get_or_create_storage_channel(guild)
+    if not channel:
         return
 
-    # Snapshot existing messages BEFORE writing so we know what to clean up.
-    old_msgs = await _find_storage_messages(thread)
+    # Remember the old message ID before we do anything.
+    old_id = _msg_ids.get(table)
 
-    # Write the new snapshot first — if this fails we still have the old ones.
+    # Write new message first.
     try:
         raw = json.dumps(data, indent=2).encode("utf-8")
         file = discord.File(io.BytesIO(raw), filename=f"{table}.json")
-        await thread.send(
+        new_msg = await channel.send(
             content=f"`{table}` — {len(data)} entries",
             file=file,
         )
+        _msg_ids[table] = new_msg.id
     except Exception as e:
         state.add_log(f"Storage: failed to write '{table}' — {e}")
-        return  # Bail out; old messages are untouched and still valid.
+        return  # Old message untouched; data is still safe.
 
-    # New message is safely stored — now clean up the old ones.
-    for old_msg in old_msgs:
+    # New message confirmed — now delete the old one.
+    if old_id:
         try:
+            old_msg = await channel.fetch_message(old_id)
             await old_msg.delete()
         except Exception:
-            pass
+            pass  # Already gone or no permission — not a problem.
 
 
 def get_cached(table: str) -> dict:
@@ -195,24 +159,14 @@ def set_cached(table: str, data: dict):
 
 async def load_all(guild: discord.Guild):
     """
-    Ensure #floppystorage and all known table threads exist, then load data.
-    Threads are created eagerly so the owner can see them immediately,
-    even before any data has been written.
+    Ensure #floppystorage exists, then load all known tables from it.
     """
     channel = await _get_or_create_storage_channel(guild)
     if not channel:
         state.add_log("Storage: startup aborted — could not get/create storage channel")
         return
 
-    # Index existing threads first.
-    threads_found = list(channel.threads)
-    async for t in channel.archived_threads(private=True):
-        threads_found.append(t)
-    for thread in threads_found:
-        _threads[thread.name] = thread
-
-    # Eagerly create + load every known table.
     for table in KNOWN_TABLES:
-        await read(guild, table)  # _get_or_create_thread is called inside read()
+        await read(guild, table)
 
     state.add_log(f"Storage: startup complete — {len(KNOWN_TABLES)} table(s) ready")
