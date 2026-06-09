@@ -127,13 +127,14 @@ async def read(guild: discord.Guild, table: str) -> dict:
         _cache[table] = {}
         return {}
 
-    # msgs is newest-first; read the newest, delete any extras
+    # msgs is newest-first; read the newest, then clean up any older duplicates.
+    # We intentionally keep msgs[0] alive at ALL times — never delete it here.
     try:
         raw = await msgs[0].attachments[0].read()
         data = json.loads(raw.decode("utf-8"))
         _cache[table] = data
         state.add_log(f"Storage: loaded '{table}' ({len(data)} entries)")
-        # Clean up any duplicate messages
+        # Remove older duplicates only after we've successfully parsed the newest.
         for old in msgs[1:]:
             try:
                 await old.delete()
@@ -142,26 +143,23 @@ async def read(guild: discord.Guild, table: str) -> dict:
         return data
     except Exception as e:
         state.add_log(f"Storage: failed to read '{table}' — {e}")
-        _cache[table] = {}
-        return {}
+        # Do NOT wipe the cache or return {} here — leave whatever we had.
+        return _cache.get(table, {})
 
 
 async def write(guild: discord.Guild, table: str, data: dict):
-    """Persist data to Discord. Replaces the previous attachment message."""
+    """Persist data to Discord. Always writes the new message BEFORE deleting
+    old ones, so a send failure can never cause data loss."""
     _cache[table] = data
 
     thread = await _get_or_create_thread(guild, table)
     if not thread:
         return
 
-    # Delete ALL existing bot messages to avoid stale duplicates
+    # Snapshot existing messages BEFORE writing so we know what to clean up.
     old_msgs = await _find_storage_messages(thread)
-    for old_msg in old_msgs:
-        try:
-            await old_msg.delete()
-        except Exception:
-            pass
 
+    # Write the new snapshot first — if this fails we still have the old ones.
     try:
         raw = json.dumps(data, indent=2).encode("utf-8")
         file = discord.File(io.BytesIO(raw), filename=f"{table}.json")
@@ -171,6 +169,14 @@ async def write(guild: discord.Guild, table: str, data: dict):
         )
     except Exception as e:
         state.add_log(f"Storage: failed to write '{table}' — {e}")
+        return  # Bail out; old messages are untouched and still valid.
+
+    # New message is safely stored — now clean up the old ones.
+    for old_msg in old_msgs:
+        try:
+            await old_msg.delete()
+        except Exception:
+            pass
 
 
 def get_cached(table: str) -> dict:
