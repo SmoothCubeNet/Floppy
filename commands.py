@@ -155,3 +155,28 @@ def register(tree: app_commands.CommandTree, guild: discord.Object):
         embed.set_footer(text=f"{len(sorted_users)} members ranked")
 
         await interaction.response.send_message(embed=embed)
+
+    @tree.command(name="setlevel", description="(Admin) Set a member's level", guild=guild)
+    @app_commands.describe(member="The member to update", level="The level to set them to")
+    async def setlevel(interaction: discord.Interaction, member: discord.Member, level: int):
+        if not is_admin(interaction.user):
+            await interaction.response.send_message("❌ Only admins can use this command.", ephemeral=True)
+            return
+
+        if level < 0:
+            await interaction.response.send_message("❌ Level must be 0 or above.", ephemeral=True)
+            return
+
+        old_xp = levelling.get_user_xp(member.id)
+        old_level = levelling.level_for_xp(old_xp)
+
+        # Set XP to the exact start of the requested level
+        new_xp = levelling.xp_for_level(level) if level > 0 else 0
+        await levelling._set_user_xp(interaction.guild, member.id, new_xp)
+
+        embed = discord.Embed(title="✏️ Level Updated", color=0x5865f2)
+        embed.add_field(name="Member", value=member.mention, inline=True)
+        embed.add_field(name="Level", value=f"{old_level} → **{level}**", inline=True)
+        embed.add_field(name="XP", value=f"{old_xp:,} → {new_xp:,}", inline=True)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        await interaction.response.send_message(embed=embed)
