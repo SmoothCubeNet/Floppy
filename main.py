@@ -11,6 +11,7 @@ import storage
 import commands
 import levelling
 from tickets import OpenTicketView, TicketPanelView, handle_ticket_mention
+from storage import RestoreBackupButton, KNOWN_TABLES
 
 load_dotenv()
 
@@ -43,6 +44,9 @@ class Floppy(discord.Client):
     async def setup_hook(self):
         self.add_view(OpenTicketView())
         self.add_view(TicketPanelView())
+        # Register one persistent RestoreBackupButton view per known table
+        for table in KNOWN_TABLES:
+            self.add_view(RestoreBackupButton(table))
         self.cycle_status.start()
         self.update_member_count_task.start()
 
