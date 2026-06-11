@@ -131,6 +131,32 @@ async def apply_trust_role(member: discord.Member, cfg: dict | None = None):
         state.add_log(f"Levelling: failed to swap level-10 role for {member}")
 
 
+async def revoke_trust_role(member: discord.Member, cfg: dict | None = None):
+    """Inverse of apply_trust_role: remove the level-10 role when a member is
+    set below level 10. Safe to call repeatedly. Does NOT re-add the join role,
+    since that role is meant for brand-new arrivals, not demotions."""
+    if cfg is None:
+        cfg = config.load()
+
+    trust_role_id = cfg.get("trust_role")
+    if not trust_role_id:
+        return
+
+    trust_role = member.guild.get_role(int(trust_role_id))
+    if trust_role is None:
+        return
+
+    if trust_role.id not in {r.id for r in member.roles}:
+        return  # nothing to do
+
+    try:
+        await member.remove_roles(trust_role, reason="Set below level 10")
+    except discord.Forbidden:
+        state.add_log("Levelling: missing permissions to remove level-10 role")
+    except discord.HTTPException:
+        state.add_log(f"Levelling: failed to remove level-10 role for {member}")
+
+
 async def backfill_trust_roles(guild: discord.Guild):
     """Apply the level-10 role swap to every current member already at level 10+."""
     cfg = config.load()
@@ -220,11 +246,13 @@ async def handle_storage_command(message: discord.Message) -> bool:
     except (discord.Forbidden, discord.NotFound):
         pass
 
-    # Keep the level-10 role in sync with the new value.
+    # Keep the level-10 role in sync with the new value — both directions.
     if member and not member.bot:
         cfg = config.load()
         if final_level >= 10:
             await apply_trust_role(member, cfg)
+        else:
+            await revoke_trust_role(member, cfg)
 
     return True
 
