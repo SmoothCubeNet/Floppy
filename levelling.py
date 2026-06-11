@@ -98,6 +98,57 @@ async def handle_message(message: discord.Message):
         state.add_log(f"Levelling: {message.author} reached level {new_level}")
         await _announce_level_up(message, new_level, new_xp, level_channel_id)
 
+    # Swap join role -> level-10 role once the member crosses level 10
+    if old_level < 10 <= new_level and isinstance(message.author, discord.Member):
+        await apply_level_10_role(message.author, cfg)
+
+
+async def apply_level_10_role(member: discord.Member, cfg: dict | None = None):
+    """Remove the join role and add the level-10 role. Safe to call repeatedly."""
+    if cfg is None:
+        cfg = config.load()
+
+    join_role_id = cfg.get("join_role")
+    level_10_role_id = cfg.get("level_10_role")
+    if not level_10_role_id:
+        return
+
+    level_10_role = member.guild.get_role(int(level_10_role_id))
+    if level_10_role is None:
+        return
+
+    member_role_ids = {r.id for r in member.roles}
+
+    try:
+        if level_10_role.id not in member_role_ids:
+            await member.add_roles(level_10_role, reason="Reached level 10")
+        if join_role_id:
+            join_role = member.guild.get_role(int(join_role_id))
+            if join_role and join_role.id in member_role_ids:
+                await member.remove_roles(join_role, reason="Reached level 10 — removing join role")
+    except discord.Forbidden:
+        state.add_log("Levelling: missing permissions to swap level-10 role")
+    except discord.HTTPException:
+        state.add_log(f"Levelling: failed to swap level-10 role for {member}")
+
+
+async def backfill_level_10_roles(guild: discord.Guild):
+    """Apply the level-10 role swap to every current member already at level 10+."""
+    cfg = config.load()
+    if not cfg.get("level_10_role"):
+        return
+    xp_data = storage.get_cached(TABLE)
+    count = 0
+    for uid_str, xp in xp_data.items():
+        if level_for_xp(xp) < 10:
+            continue
+        member = guild.get_member(int(uid_str))
+        if member is None or member.bot:
+            continue
+        await apply_level_10_role(member, cfg)
+        count += 1
+    state.add_log(f"Levelling: backfilled level-10 role for {count} member(s)")
+
 
 async def _announce_level_up(message: discord.Message, new_level: int, total_xp: int, level_channel_id):
     _, xp_into, xp_needed = xp_progress(total_xp)
