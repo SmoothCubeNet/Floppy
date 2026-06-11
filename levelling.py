@@ -100,28 +100,28 @@ async def handle_message(message: discord.Message):
 
     # Swap join role -> level-10 role once the member crosses level 10
     if old_level < 10 <= new_level and isinstance(message.author, discord.Member):
-        await apply_level_10_role(message.author, cfg)
+        await apply_trust_role(message.author, cfg)
 
 
-async def apply_level_10_role(member: discord.Member, cfg: dict | None = None):
+async def apply_trust_role(member: discord.Member, cfg: dict | None = None):
     """Remove the join role and add the level-10 role. Safe to call repeatedly."""
     if cfg is None:
         cfg = config.load()
 
     join_role_id = cfg.get("join_role")
-    level_10_role_id = cfg.get("level_10_role")
-    if not level_10_role_id:
+    trust_role_id = cfg.get("trust_role")
+    if not trust_role_id:
         return
 
-    level_10_role = member.guild.get_role(int(level_10_role_id))
-    if level_10_role is None:
+    trust_role = member.guild.get_role(int(trust_role_id))
+    if trust_role is None:
         return
 
     member_role_ids = {r.id for r in member.roles}
 
     try:
-        if level_10_role.id not in member_role_ids:
-            await member.add_roles(level_10_role, reason="Reached level 10")
+        if trust_role.id not in member_role_ids:
+            await member.add_roles(trust_role, reason="Reached level 10")
         if join_role_id:
             join_role = member.guild.get_role(int(join_role_id))
             if join_role and join_role.id in member_role_ids:
@@ -132,10 +132,10 @@ async def apply_level_10_role(member: discord.Member, cfg: dict | None = None):
         state.add_log(f"Levelling: failed to swap level-10 role for {member}")
 
 
-async def backfill_level_10_roles(guild: discord.Guild):
+async def backfill_trust_roles(guild: discord.Guild):
     """Apply the level-10 role swap to every current member already at level 10+."""
     cfg = config.load()
-    if not cfg.get("level_10_role"):
+    if not cfg.get("trust_role"):
         return
     xp_data = storage.get_cached(TABLE)
     count = 0
@@ -145,7 +145,7 @@ async def backfill_level_10_roles(guild: discord.Guild):
         member = guild.get_member(int(uid_str))
         if member is None or member.bot:
             continue
-        await apply_level_10_role(member, cfg)
+        await apply_trust_role(member, cfg)
         count += 1
     state.add_log(f"Levelling: backfilled level-10 role for {count} member(s)")
 
