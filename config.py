@@ -9,6 +9,7 @@ DEFAULTS = {
     "goodbye_channel": None,
     "goodbye_message": "Goodbye {mention}, we'll miss you! 👋",
     "join_role": None,
+    "level_10_role": None,
     "audit_log_channel": None,
     "ticket_channel": None,
     "ticket_category": None,
