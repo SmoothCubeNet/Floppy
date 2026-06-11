@@ -98,7 +98,6 @@ async def handle_message(message: discord.Message):
         state.add_log(f"Levelling: {message.author} reached level {new_level}")
         await _announce_level_up(message, new_level, new_xp, level_channel_id)
 
-    # Swap join role -> level-10 role once the member crosses level 10
     if old_level < 10 <= new_level and isinstance(message.author, discord.Member):
         await apply_trust_role(message.author, cfg)
 
