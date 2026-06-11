@@ -149,6 +149,77 @@ async def backfill_trust_roles(guild: discord.Guild):
     state.add_log(f"Levelling: backfilled level-10 role for {count} member(s)")
 
 
+# ---------------------------------------------------------------------------
+# Manual override — typed in #floppystorage
+#   set <user_id> level <n>
+#   set <user_id> xp <n>
+# Admin-only. Returns True if the message was a (valid or invalid) set command,
+# so the caller knows to stop further processing.
+# ---------------------------------------------------------------------------
+
+async def handle_storage_command(message: discord.Message) -> bool:
+    content = message.content.strip()
+    parts = content.split()
+
+    # Must look like: set <id> <level|xp> <number>
+    if len(parts) != 4 or parts[0].lower() != "set":
+        return False
+
+    # Admin gate
+    author = message.author
+    if not (isinstance(author, discord.Member) and author.guild_permissions.administrator):
+        await message.channel.send("❌ Only admins can set XP/level.")
+        return True
+
+    _, raw_id, mode, raw_value = parts
+    mode = mode.lower()
+
+    # Parse user id (accept raw id or a <@123> / <@!123> mention)
+    digits = "".join(ch for ch in raw_id if ch.isdigit())
+    if not digits:
+        await message.channel.send("❌ Invalid user ID.")
+        return True
+    user_id = int(digits)
+
+    if mode not in ("level", "xp"):
+        await message.channel.send("❌ Use `set <user_id> level <n>` or `set <user_id> xp <n>`.")
+        return True
+
+    try:
+        value = int(raw_value)
+    except ValueError:
+        await message.channel.send(f"❌ `{raw_value}` is not a number.")
+        return True
+
+    if value < 0:
+        await message.channel.send("❌ Value must be 0 or greater.")
+        return True
+
+    if mode == "level":
+        new_xp = xp_for_level(value) if value > 0 else 0
+    else:  # xp
+        new_xp = value
+
+    await _set_user_xp(message.guild, user_id, new_xp)
+
+    final_level = level_for_xp(new_xp)
+    state.add_log(f"Levelling: admin {author} set user {user_id} -> {new_xp} XP (level {final_level})")
+
+    member = message.guild.get_member(user_id)
+    who = member.mention if member else f"`{user_id}`"
+    await message.channel.send(
+        f"✅ Set {who} to **{new_xp} XP** (level **{final_level}**)."
+    )
+
+    # Keep the level-10 role in sync with the new value.
+    if member and not member.bot:
+        cfg = config.load()
+        if final_level >= 10:
+            await apply_trust_role(member, cfg)
+
+    return True
+
+
 async def _announce_level_up(message: discord.Message, new_level: int, total_xp: int, level_channel_id):
     _, xp_into, xp_needed = xp_progress(total_xp)
 
