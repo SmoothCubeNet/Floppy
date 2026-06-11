@@ -111,7 +111,7 @@ class Floppy(discord.Client):
                 pass
 
             await storage.load_all(guild)
-            await levelling.backfill_level_10_roles(guild)
+            await levelling.backfill_trust_roles(guild)
 
         state.add_log("Ticket panel views registered (panel NOT re-sent on boot)")
         print(f"Online as {self.user}")
