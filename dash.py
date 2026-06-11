@@ -142,6 +142,11 @@ PAGE = """
         <label>Role to assign on join</label>
         <select id="join_role" onchange="markDirty()"><option value="">— none —</option></select>
       </div>
+      <div class="field">
+        <label>Role to swap in at level 10</label>
+        <select id="level_10_role" onchange="markDirty()"><option value="">— none —</option></select>
+        <div class="hint">When a member reaches level 10, the join role is removed and this role is added.</div>
+      </div>
     </div>
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-roles">⚠️ Unsaved changes</span>
@@ -419,6 +424,7 @@ PAGE = """
       populateSelect('ticket_category', guildData.categories, cfg.ticket_category);
       populateSelect('ticket_closed_category', guildData.categories, cfg.ticket_closed_category);
       populateSelect('join_role', guildData.roles, cfg.join_role);
+      populateSelect('level_10_role', guildData.roles, cfg.level_10_role);
       populateSelect('member_count_channel', guildData.voice_channels, cfg.member_count_channel);
       populateSelect('level_channel', guildData.channels, cfg.level_channel);
       populateSelect('commands_channel', guildData.channels, cfg.commands_channel);
@@ -457,6 +463,7 @@ PAGE = """
       goodbye_channel: document.getElementById('goodbye_channel').value || null,
       goodbye_message: document.getElementById('goodbye_message').value || null,
       join_role: document.getElementById('join_role').value || null,
+      level_10_role: document.getElementById('level_10_role').value || null,
       audit_log_channel: document.getElementById('audit_log_channel').value || null,
       ticket_channel: document.getElementById('ticket_channel').value || null,
       ticket_category: document.getElementById('ticket_category').value || null,
@@ -519,8 +526,18 @@ async def get_config():
 async def set_config():
     data = await request.get_json()
     cfg = config.load()
+    old_level_10_role = cfg.get("level_10_role")
     cfg.update(data)
     config.save(cfg)
+
+    # If the level-10 role was changed, apply it to existing level 10+ members now.
+    if data.get("level_10_role") and data.get("level_10_role") != old_level_10_role:
+        bot = state.bot
+        if bot and bot.guilds:
+            import levelling
+            for guild in bot.guilds:
+                await levelling.backfill_level_10_roles(guild)
+
     return jsonify({"ok": True})
 
 @app.route("/api/sync-member-count", methods=["POST"])
