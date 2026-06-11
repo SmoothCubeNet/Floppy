@@ -207,9 +207,18 @@ async def handle_storage_command(message: discord.Message) -> bool:
 
     member = message.guild.get_member(user_id)
     who = member.mention if member else f"`{user_id}`"
+    # Auto-delete the confirmation so #floppystorage stays clean and the
+    # permanent JSON message doesn't get pushed out of the history scan window.
     await message.channel.send(
-        f"✅ Set {who} to **{new_xp} XP** (level **{final_level}**)."
+        f"✅ Set {who} to **{new_xp} XP** (level **{final_level}**).",
+        delete_after=10,
     )
+
+    # Clean up the command message now that it succeeded.
+    try:
+        await message.delete()
+    except (discord.Forbidden, discord.NotFound):
+        pass
 
     # Keep the level-10 role in sync with the new value.
     if member and not member.bot:
