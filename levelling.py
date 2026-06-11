@@ -158,21 +158,45 @@ async def revoke_trust_role(member: discord.Member, cfg: dict | None = None):
 
 
 async def backfill_trust_roles(guild: discord.Guild):
-    """Apply the level-10 role swap to every current member already at level 10+."""
+    """Reconcile the level-10 role for the whole guild on startup.
+
+    Adds the role to anyone at level 10+ who lacks it, and removes it from
+    anyone below level 10 who still has it (e.g. demoted while the bot was
+    offline, or whose XP was manually lowered). Members with no XP entry count
+    as level 0.
+    """
     cfg = config.load()
-    if not cfg.get("trust_role"):
+    trust_role_id = cfg.get("trust_role")
+    if not trust_role_id:
         return
+
+    trust_role = guild.get_role(int(trust_role_id))
+    if trust_role is None:
+        state.add_log("Levelling: backfill skipped — trust role not found in guild")
+        return
+
     xp_data = storage.get_cached(TABLE)
-    count = 0
-    for uid_str, xp in xp_data.items():
-        if level_for_xp(xp) < 10:
+
+    added = 0
+    removed = 0
+    for member in guild.members:
+        if member.bot:
             continue
-        member = guild.get_member(int(uid_str))
-        if member is None or member.bot:
-            continue
-        await apply_trust_role(member, cfg)
-        count += 1
-    state.add_log(f"Levelling: backfilled level-10 role for {count} member(s)")
+
+        xp = xp_data.get(str(member.id), 0)
+        qualifies = level_for_xp(xp) >= 10
+        has_role = trust_role.id in {r.id for r in member.roles}
+
+        if qualifies and not has_role:
+            await apply_trust_role(member, cfg)
+            added += 1
+        elif not qualifies and has_role:
+            await revoke_trust_role(member, cfg)
+            removed += 1
+
+    state.add_log(
+        f"Levelling: backfill reconciled trust role — added {added}, removed {removed}"
+    )
 
 
 # ---------------------------------------------------------------------------
