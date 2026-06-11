@@ -210,10 +210,37 @@ async def write(guild: discord.Guild, table: str, data: dict):
     if not channel:
         return
 
+    live_msg = _live_msgs.get(table)
+
+    # If we don't have a live message cached (e.g. cold write after a restart,
+    # or load_all never adopted it), scan the channel for the existing one and
+    # adopt it BEFORE ever creating a new message. This is what prevents a
+    # second duplicate message from being posted.
+    if not live_msg:
+        live_msg = await _find_table_message(channel, table)
+        if live_msg:
+            _live_msgs[table] = live_msg
+            state.add_log(f"Storage: adopted existing message for '{table}' (msg {live_msg.id})")
+
+    # Merge into whatever is actually stored on the existing message rather than
+    # blindly overwriting it. This way an incoming write only ever adds missing
+    # keys or updates the ones it carries — it can never drop entries that were
+    # already persisted (e.g. if the in-memory cache was stale/empty).
+    if live_msg and live_msg.attachments:
+        try:
+            existing_raw = await live_msg.attachments[0].read()
+            existing = json.loads(existing_raw.decode("utf-8"))
+            if isinstance(existing, dict):
+                merged = dict(existing)
+                merged.update(data)
+                data = merged
+        except Exception as e:
+            state.add_log(f"Storage: couldn't merge existing '{table}', writing as-is — {e}")
+
+    # Cache + outgoing payload reflect the merged result.
+    _cache[table] = data
     raw = json.dumps(data, indent=2).encode("utf-8")
     content_text = f"`{table}` — {len(data)} entries"
-
-    live_msg = _live_msgs.get(table)
 
     if live_msg:
         # Edit the existing message in-place — zero chance of duplicates.
