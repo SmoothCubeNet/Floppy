@@ -155,3 +155,48 @@ def register(tree: app_commands.CommandTree, guild: discord.Object):
         embed.set_footer(text=f"{len(sorted_users)} members ranked")
 
         await interaction.response.send_message(embed=embed)
+
+    @tree.command(name="setlevel", description="(Admin) Set a member's level", guild=guild)
+    @app_commands.describe(
+        member="The member to update",
+        level="The level to set them to",
+    )
+    async def setlevel(
+        interaction: discord.Interaction,
+        member: discord.Member,
+        level: int,
+    ):
+        if not is_admin(interaction.user):
+            await interaction.response.send_message(
+                "❌ Only admins can use this command.", ephemeral=True
+            )
+            return
+
+        if level < 0:
+            await interaction.response.send_message(
+                "❌ Level can't be negative.", ephemeral=True
+            )
+            return
+
+        # Set XP to the minimum required for the requested level (1 XP past the
+        # threshold so level_for_xp lands exactly on `level`); level 0 -> 1 XP.
+        new_xp = (levelling.xp_for_level(level) + 1) if level > 0 else 1
+
+        await interaction.response.defer()
+
+        cfg = config.load()
+        await levelling._set_user_xp(interaction.guild, member.id, new_xp)
+
+        # Keep the level-10 trust role in sync with the new value
+        if levelling.level_for_xp(new_xp) >= 10:
+            await levelling.apply_trust_role(member, cfg)
+        else:
+            await levelling.revoke_trust_role(member, cfg)
+
+        lv, xp_into, xp_needed = levelling.xp_progress(new_xp)
+        embed = discord.Embed(title=f"✅ Updated {member.display_name}", color=0x5865f2)
+        embed.add_field(name="Level", value=str(lv), inline=True)
+        embed.add_field(name="Total XP", value=str(new_xp), inline=True)
+        embed.add_field(name="Progress", value=f"{xp_into}/{xp_needed} XP", inline=False)
+        embed.set_thumbnail(url=member.display_avatar.url)
+        await interaction.followup.send(embed=embed)
