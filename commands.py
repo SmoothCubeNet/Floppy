@@ -187,8 +187,8 @@ def register(tree: app_commands.CommandTree, guild: discord.Object):
         cfg = config.load()
         await levelling._set_user_xp(interaction.guild, member.id, new_xp)
 
-        # Keep the level-10 trust role in sync with the new value
-        if levelling.level_for_xp(new_xp) >= 10:
+        # Keep the trust role in sync with the new value
+        if levelling.level_for_xp(new_xp) >= levelling.TRUST_LEVEL:
             await levelling.apply_trust_role(member, cfg)
         else:
             await levelling.revoke_trust_role(member, cfg)
