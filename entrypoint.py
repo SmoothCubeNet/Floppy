@@ -17,12 +17,6 @@ app.register_blueprint(messenger_app, url_prefix="/messenger")
 
 
 async def run_bot(bot, token):
-    """Keep the Discord bot alive across unexpected errors.
-
-    discord.py handles WebSocket reconnects internally, but an unhandled
-    exception that escapes bot.start() would otherwise kill the process.
-    This loop catches those and restarts the client instead of dying.
-    """
     while True:
         try:
             await bot.start(token)
