@@ -92,17 +92,27 @@ class Floppy(discord.Client):
         state.bot = self
         state.add_log(f"Bot online as {self.user}")
 
+        # Global sync is heavily rate-limited and only needs to run ONCE total,
+        # not per-guild and not on every boot. Doing it per-guild every boot is a
+        # 429 (rate-limit) crash vector. Guard it so it runs at most once per process.
+        if not getattr(self, "_global_synced", False):
+            try:
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()  # push empty global set, once
+                self._global_synced = True
+            except Exception as e:
+                state.add_log(f"Global command sync failed (non-fatal): {e}")
+
         for guild in self.guilds:
             g = discord.Object(id=guild.id)
-            # Clear any stale global commands (removes old /rank etc.) — once is enough
-            # but harmless to run every boot.
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()  # push empty global set
             # Clear and re-register guild commands fresh every boot to avoid duplicates.
-            self.tree.clear_commands(guild=g)
-            commands.register(self.tree, g)
-            await self.tree.sync(guild=g)
-            state.add_log(f"Commands synced to {guild.name}")
+            try:
+                self.tree.clear_commands(guild=g)
+                commands.register(self.tree, g)
+                await self.tree.sync(guild=g)
+                state.add_log(f"Commands synced to {guild.name}")
+            except Exception as e:
+                state.add_log(f"Command sync failed for {guild.name} (non-fatal): {e}")
 
             try:
                 invites = await guild.fetch_invites()
@@ -110,8 +120,11 @@ class Floppy(discord.Client):
             except Exception:
                 pass
 
-            await storage.load_all(guild)
-            await levelling.backfill_trust_roles(guild)
+            try:
+                await storage.load_all(guild)
+                await levelling.backfill_trust_roles(guild)
+            except Exception as e:
+                state.add_log(f"Startup data load failed for {guild.name} (non-fatal): {e}")
 
         state.add_log("Ticket panel views registered (panel NOT re-sent on boot)")
         print(f"Online as {self.user}")
