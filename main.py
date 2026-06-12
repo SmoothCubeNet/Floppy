@@ -20,11 +20,13 @@ STATUSES = cycle([
     "🔌 poking the API", "🔍 searching messages", "📋 reading logs"
 ])
 
-def make_embed(color, title, description=None, fields=None, footer=None):
+def make_embed(color, title, description=None, fields=None, footer=None, thumbnail=None):
     e = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now(timezone.utc))
     if fields:
         for name, value, inline in fields:
             e.add_field(name=name, value=value, inline=inline)
+    if thumbnail:
+        e.set_thumbnail(url=thumbnail)
     if footer:
         e.set_footer(text=footer)
     return e
@@ -237,7 +239,15 @@ class Floppy(discord.Client):
                 msg = cfg.get("welcome_message", "Welcome {mention} to {server}!")
                 try:
                     text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
-                    await channel.send(text)
+                    emb = make_embed(
+                        GREEN,
+                        "👋 Welcome!",
+                        description=text,
+                        fields=[("Account Age", f"<t:{int(member.created_at.timestamp())}:R>", True)],
+                        footer=f"Member #{member.guild.member_count}",
+                        thumbnail=member.display_avatar.url,
+                    )
+                    await channel.send(content=member.mention, embed=emb)
                 except (KeyError, IndexError) as e:
                     # Bad custom template with an unknown {placeholder} — log, don't crash.
                     state.add_log(f"Welcome message template error: {e}")
@@ -263,7 +273,14 @@ class Floppy(discord.Client):
                 msg = cfg.get("goodbye_message", "Goodbye {mention}, we'll miss you!")
                 try:
                     text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
-                    await channel.send(text)
+                    emb = make_embed(
+                        RED,
+                        "👋 Goodbye",
+                        description=text,
+                        footer=f"Now {member.guild.member_count} members",
+                        thumbnail=member.display_avatar.url,
+                    )
+                    await channel.send(embed=emb)
                 except (KeyError, IndexError) as e:
                     state.add_log(f"Goodbye message template error: {e}")
                 except discord.HTTPException:
