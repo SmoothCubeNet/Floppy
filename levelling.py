@@ -12,6 +12,21 @@ XP_PER_MESSAGE_MIN = 15
 XP_PER_MESSAGE_MAX = 25
 XP_COOLDOWN_SECONDS = 60  # one XP grant per user per minute
 
+# --- Reply / engagement tuning ---------------------------------------------
+# Philosophy: the social signal should come from being responded TO (hard to
+# fake), not from the act of replying (trivial to fake by spamming the reply
+# button). So the reply bonus is a gentle nudge, while engagement credit — XP
+# for being replied to — carries more of the weight.
+#
+# Modeled against the 5n²+50n+100 curve: at 1.15x a reply-everything user reaches
+# level 10 only ~0.2 days faster than a plain chatter, so plain text never feels
+# pointless and nobody is forced to reply to everything to stay competitive.
+REPLY_BONUS_MULTIPLIER = 1.15  # replier's grant scaled by this when replying
+# Flat XP to the person being replied to, gated by THEIR own cooldown. Capped at
+# ~40% of an active chatter's rate, so popularity helps but can't out-earn real
+# participation, and can't be farmed via back-and-forth (cooldown blocks it).
+ENGAGEMENT_XP = 8
+
 TABLE = "levelling"
 
 # In-memory cooldown tracker: {user_id: last_granted_monotonic_time}
@@ -78,28 +93,70 @@ async def handle_message(message: discord.Message):
     cfg = config.load()
     level_channel_id = cfg.get("level_channel")
 
-    user_id = message.author.id
+    author = message.author
     now = time.monotonic()
 
-    if now - _cooldowns.get(user_id, 0) < XP_COOLDOWN_SECONDS:
-        return
-    _cooldowns[user_id] = now
+    # --- Resolve whether this is a genuine reply to ANOTHER human -----------
+    replied_to = None
+    ref = message.reference
+    if ref is not None:
+        resolved = ref.resolved if isinstance(ref.resolved, discord.Message) else None
+        # If the referenced message wasn't in cache, fetch it once. Guarded so a
+        # deleted/inaccessible parent just means "no bonus", never a crash.
+        if resolved is None and ref.message_id:
+            try:
+                resolved = await message.channel.fetch_message(ref.message_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                resolved = None
+        if resolved and not resolved.author.bot and resolved.author.id != author.id:
+            replied_to = resolved.author
 
-    gained = random.randint(XP_PER_MESSAGE_MIN, XP_PER_MESSAGE_MAX)
+    is_reply = replied_to is not None
+
+    # --- Grant XP to the message author (subject to their cooldown) ---------
+    if now - _cooldowns.get(author.id, 0) >= XP_COOLDOWN_SECONDS:
+        _cooldowns[author.id] = now
+
+        gained = random.randint(XP_PER_MESSAGE_MIN, XP_PER_MESSAGE_MAX)
+        if is_reply:
+            # Replying is direct engagement — scale the grant up.
+            gained = int(gained * REPLY_BONUS_MULTIPLIER)
+
+        await _grant_xp(message.guild, author, gained, cfg, message, level_channel_id)
+
+    # --- Engagement credit to the person who was replied to ----------------
+    # Gated by the replied-to user's OWN cooldown so two people can't sit and
+    # reply back-and-forth every second to pump each other's XP.
+    if replied_to is not None:
+        if now - _cooldowns.get(replied_to.id, 0) >= XP_COOLDOWN_SECONDS:
+            _cooldowns[replied_to.id] = now
+            await _grant_xp(
+                message.guild, replied_to, ENGAGEMENT_XP, cfg, message, level_channel_id
+            )
+
+
+async def _grant_xp(guild, member, amount: int, cfg: dict, message, level_channel_id):
+    """Add `amount` XP to `member`, handling level-up announcement and the
+    level-10 trust-role swap. Shared by both the message author and the
+    replied-to user so the logic lives in exactly one place."""
+    if amount <= 0:
+        return
+
+    user_id = member.id
     old_xp = get_user_xp(user_id)
-    new_xp = old_xp + gained
+    new_xp = old_xp + amount
 
     old_level = level_for_xp(old_xp)
     new_level = level_for_xp(new_xp)
 
-    await _set_user_xp(message.guild, user_id, new_xp)
+    await _set_user_xp(guild, user_id, new_xp)
 
     if new_level > old_level:
-        state.add_log(f"Levelling: {message.author} reached level {new_level}")
-        await _announce_level_up(message, new_level, new_xp, level_channel_id)
+        state.add_log(f"Levelling: {member} reached level {new_level}")
+        await _announce_level_up(message, new_level, new_xp, level_channel_id, member)
 
-    if old_level < 10 <= new_level and isinstance(message.author, discord.Member):
-        await apply_trust_role(message.author, cfg)
+    if old_level < 10 <= new_level and isinstance(member, discord.Member):
+        await apply_trust_role(member, cfg)
 
 
 async def apply_trust_role(member: discord.Member, cfg: dict | None = None):
@@ -199,16 +256,21 @@ async def backfill_trust_roles(guild: discord.Guild):
     )
 
 
-async def _announce_level_up(message: discord.Message, new_level: int, total_xp: int, level_channel_id):
+async def _announce_level_up(message: discord.Message, new_level: int, total_xp: int, level_channel_id, member=None):
+    # The member leveling up may be the replier OR the person who was replied to,
+    # so default to the message author only when no explicit member is passed.
+    if member is None:
+        member = message.author
+
     _, xp_into, xp_needed = xp_progress(total_xp)
 
     embed = discord.Embed(
         title="⬆️ Level Up!",
-        description=f"{message.author.mention} just reached **Level {new_level}**! 🎉",
+        description=f"{member.mention} just reached **Level {new_level}**! 🎉",
         color=0x5865f2,
     )
     embed.add_field(name="Progress", value=f"{xp_into} / {xp_needed} XP to next level", inline=False)
-    embed.set_thumbnail(url=message.author.display_avatar.url)
+    embed.set_thumbnail(url=member.display_avatar.url)
 
     channel = None
     if level_channel_id:
