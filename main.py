@@ -71,6 +71,64 @@ class Floppy(discord.Client):
         except Exception as e:
             state.add_log(f"Member count: failed to rename — {e}")
 
+    async def backfill_join_roles(self, guild):
+        """Reconcile the join role across the whole guild on startup.
+
+        Discord does NOT replay member-join events that happened while the bot
+        was offline (a crash, a deploy, a host reboot). Those members never
+        triggered on_member_join, so they silently never received the join role.
+        This pass closes that gap: every non-bot human who has neither the join
+        role nor the trust role gets the join role granted.
+
+        Members at level 10+ correctly hold the trust role (not the join role) —
+        backfill_trust_roles runs before this and handles them — so they are
+        skipped here by the trust-role check.
+        """
+        cfg = config.load()
+        join_role_id = cfg.get("join_role")
+        if not join_role_id:
+            state.add_log("Join backfill skipped — no join_role configured")
+            return
+
+        join_role = guild.get_role(int(join_role_id))
+        if join_role is None:
+            state.add_log("Join backfill skipped — join role not found in guild")
+            return
+
+        trust_role_id = cfg.get("trust_role")
+        trust_role = guild.get_role(int(trust_role_id)) if trust_role_id else None
+
+        granted = 0
+        failed = 0
+        for member in guild.members:
+            if member.bot:
+                continue
+
+            member_role_ids = {r.id for r in member.roles}
+
+            # Already has the join role — nothing to do.
+            if join_role.id in member_role_ids:
+                continue
+
+            # Holds the trust role (level 10+) — they've graduated past the join
+            # role by design; don't re-add it.
+            if trust_role and trust_role.id in member_role_ids:
+                continue
+
+            try:
+                await member.add_roles(join_role, reason="Join-role backfill (missed while offline)")
+                granted += 1
+            except discord.Forbidden:
+                state.add_log("Join backfill: missing permissions to add join role")
+                failed += 1
+                break  # permission won't fix itself mid-loop; stop hammering the API
+            except discord.HTTPException:
+                failed += 1
+
+        state.add_log(
+            f"Join backfill reconciled '{guild.name}' — granted {granted}, failed {failed}"
+        )
+
     @tasks.loop(minutes=30)
     async def update_member_count_task(self):
         for guild in self.guilds:
@@ -123,6 +181,10 @@ class Floppy(discord.Client):
             try:
                 await storage.load_all(guild)
                 await levelling.backfill_trust_roles(guild)
+                # Reconcile join roles AFTER trust roles: trust backfill strips the
+                # join role from level-10+ members, so running join-backfill second
+                # means it correctly skips them instead of re-adding a role they shed.
+                await self.backfill_join_roles(guild)
             except Exception as e:
                 state.add_log(f"Startup data load failed for {guild.name} (non-fatal): {e}")
 
@@ -173,8 +235,14 @@ class Floppy(discord.Client):
             channel = member.guild.get_channel(int(channel_id))
             if channel:
                 msg = cfg.get("welcome_message", "Welcome {mention} to {server}!")
-                text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
-                await channel.send(text)
+                try:
+                    text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
+                    await channel.send(text)
+                except (KeyError, IndexError) as e:
+                    # Bad custom template with an unknown {placeholder} — log, don't crash.
+                    state.add_log(f"Welcome message template error: {e}")
+                except discord.HTTPException:
+                    state.add_log("Welcome message: failed to send (permissions/channel?)")
 
         await self.update_member_count(member.guild)
         state.add_log(f"Member joined: {member}")
@@ -193,8 +261,13 @@ class Floppy(discord.Client):
             channel = member.guild.get_channel(int(channel_id))
             if channel:
                 msg = cfg.get("goodbye_message", "Goodbye {mention}, we'll miss you!")
-                text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
-                await channel.send(text)
+                try:
+                    text = msg.format(mention=member.mention, name=str(member), server=member.guild.name)
+                    await channel.send(text)
+                except (KeyError, IndexError) as e:
+                    state.add_log(f"Goodbye message template error: {e}")
+                except discord.HTTPException:
+                    state.add_log("Goodbye message: failed to send (permissions/channel?)")
 
         await self.update_member_count(member.guild)
         state.add_log(f"Member left: {member}")
