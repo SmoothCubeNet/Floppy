@@ -5,7 +5,7 @@ import state
 import config
 
 # ---------------------------------------------------------------------------
-# XP formula: 5n² + 50n + 50
+# XP formula: 5n² + 50n + 100
 # ---------------------------------------------------------------------------
 
 XP_PER_MESSAGE_MIN = 15
@@ -18,14 +18,19 @@ XP_COOLDOWN_SECONDS = 60  # one XP grant per user per minute
 # button). So the reply bonus is a gentle nudge, while engagement credit — XP
 # for being replied to — carries more of the weight.
 #
-# Modeled against the 5n²+50n+50 curve: at 1.15x a reply-everything user reaches
-# level 5 only ~0.2 days faster than a plain chatter, so plain text never feels
+# Modeled against the 5n²+50n+100 curve: at 1.15x a reply-everything user reaches
+# level 10 only ~0.2 days faster than a plain chatter, so plain text never feels
 # pointless and nobody is forced to reply to everything to stay competitive.
 REPLY_BONUS_MULTIPLIER = 1.15  # replier's grant scaled by this when replying
 # Flat XP to the person being replied to, gated by THEIR own cooldown. Capped at
 # ~40% of an active chatter's rate, so popularity helps but can't out-earn real
 # participation, and can't be farmed via back-and-forth (cooldown blocks it).
 ENGAGEMENT_XP = 8
+
+# The level at which a member earns the trust role (and sheds the join role).
+# Single source of truth — referenced by the live trigger, the boot-time
+# backfill, and /setlevel so they can never disagree and flip-flop roles.
+TRUST_LEVEL = 5
 
 TABLE = "levelling"
 
@@ -39,7 +44,7 @@ _cooldowns: dict[int, float] = {}
 
 def xp_for_level(level: int) -> int:
     """Total XP required to reach this level from 0."""
-    return 5 * level * level + 50 * level + 50
+    return 5 * level * level + 50 * level + 100
 
 
 def level_for_xp(total_xp: int) -> int:
@@ -137,7 +142,7 @@ async def handle_message(message: discord.Message):
 
 async def _grant_xp(guild, member, amount: int, cfg: dict, message, level_channel_id):
     """Add `amount` XP to `member`, handling level-up announcement and the
-    level-5 trust-role swap. Shared by both the message author and the
+    level-10 trust-role swap. Shared by both the message author and the
     replied-to user so the logic lives in exactly one place."""
     if amount <= 0:
         return
@@ -155,12 +160,12 @@ async def _grant_xp(guild, member, amount: int, cfg: dict, message, level_channe
         state.add_log(f"Levelling: {member} reached level {new_level}")
         await _announce_level_up(message, new_level, new_xp, level_channel_id, member)
 
-    if old_level < 5 <= new_level and isinstance(member, discord.Member):
+    if old_level < TRUST_LEVEL <= new_level and isinstance(member, discord.Member):
         await apply_trust_role(member, cfg)
 
 
 async def apply_trust_role(member: discord.Member, cfg: dict | None = None):
-    """Remove the join role and add the level-5 role. Safe to call repeatedly."""
+    """Remove the join role and add the level-10 role. Safe to call repeatedly."""
     if cfg is None:
         cfg = config.load()
 
@@ -177,20 +182,20 @@ async def apply_trust_role(member: discord.Member, cfg: dict | None = None):
 
     try:
         if trust_role.id not in member_role_ids:
-            await member.add_roles(trust_role, reason="Reached level 5")
+            await member.add_roles(trust_role, reason="Reached level 10")
         if join_role_id:
             join_role = member.guild.get_role(int(join_role_id))
             if join_role and join_role.id in member_role_ids:
-                await member.remove_roles(join_role, reason="Reached level 5 — removing join role")
+                await member.remove_roles(join_role, reason="Reached level 10 — removing join role")
     except discord.Forbidden:
-        state.add_log("Levelling: missing permissions to swap level-5 role")
+        state.add_log("Levelling: missing permissions to swap level-10 role")
     except discord.HTTPException:
-        state.add_log(f"Levelling: failed to swap level-5 role for {member}")
+        state.add_log(f"Levelling: failed to swap level-10 role for {member}")
 
 
 async def revoke_trust_role(member: discord.Member, cfg: dict | None = None):
-    """Inverse of apply_trust_role: remove the level-5 role when a member is
-    set below level 5. Safe to call repeatedly. Does NOT re-add the join role,
+    """Inverse of apply_trust_role: remove the level-10 role when a member is
+    set below level 10. Safe to call repeatedly. Does NOT re-add the join role,
     since that role is meant for brand-new arrivals, not demotions."""
     if cfg is None:
         cfg = config.load()
@@ -207,18 +212,18 @@ async def revoke_trust_role(member: discord.Member, cfg: dict | None = None):
         return  # nothing to do
 
     try:
-        await member.remove_roles(trust_role, reason="Set below level 5")
+        await member.remove_roles(trust_role, reason="Set below level 10")
     except discord.Forbidden:
-        state.add_log("Levelling: missing permissions to remove level-5 role")
+        state.add_log("Levelling: missing permissions to remove level-10 role")
     except discord.HTTPException:
-        state.add_log(f"Levelling: failed to remove level-5 role for {member}")
+        state.add_log(f"Levelling: failed to remove level-10 role for {member}")
 
 
 async def backfill_trust_roles(guild: discord.Guild):
-    """Reconcile the level-5 role for the whole guild on startup.
+    """Reconcile the level-10 role for the whole guild on startup.
 
-    Adds the role to anyone at level 5+ who lacks it, and removes it from
-    anyone below level 5 who still has it (e.g. demoted while the bot was
+    Adds the role to anyone at level 10+ who lacks it, and removes it from
+    anyone below level 10 who still has it (e.g. demoted while the bot was
     offline, or whose XP was manually lowered). Members with no XP entry count
     as level 0.
     """
@@ -241,7 +246,7 @@ async def backfill_trust_roles(guild: discord.Guild):
             continue
 
         xp = xp_data.get(str(member.id), 0)
-        qualifies = level_for_xp(xp) >= 5
+        qualifies = level_for_xp(xp) >= TRUST_LEVEL
         has_role = trust_role.id in {r.id for r in member.roles}
 
         if qualifies and not has_role:
