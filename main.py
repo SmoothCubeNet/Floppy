@@ -210,6 +210,9 @@ class Floppy(discord.Client):
 
             try:
                 await storage.load_all(guild)
+                # Make sure the XP table covers the whole roster first (adds any
+                # missing member at 0 XP) so later passes see everyone.
+                await levelling.ensure_all_members_present(guild)
                 await levelling.backfill_trust_roles(guild)
                 # Top up anyone past the tenure threshold to the trust level BEFORE
                 # the join-role backfill, so newly-trusted members correctly shed
@@ -287,6 +290,11 @@ class Floppy(discord.Client):
                     state.add_log("Welcome message: failed to send (permissions/channel?)")
 
         await self.update_member_count(member.guild)
+        # Make sure the new arrival exists in the XP table right away.
+        try:
+            await levelling.ensure_member_present(member.guild, member.id)
+        except Exception as e:
+            state.add_log(f"Levelling: failed to add joiner to XP table — {e}")
         state.add_log(f"Member joined: {member}")
         await self.log(member.guild, make_embed(GREEN, "Member Joined", fields=[
             ("Member", f"{member.mention} ({member})", True),
