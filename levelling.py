@@ -297,6 +297,44 @@ async def backfill_trust_roles(guild: discord.Guild):
     )
 
 
+async def ensure_member_present(guild: discord.Guild, member_id: int):
+    """Ensure a single member has an XP entry (at 0 if absent). Used on join so
+    the table stays in sync without waiting for a reboot. No-op if they exist."""
+    data = storage.get_cached(TABLE)
+    if str(member_id) in data:
+        return
+    data = dict(data)
+    data[str(member_id)] = 0
+    storage.set_cached(TABLE, data)
+    await storage.write(guild, TABLE, data)
+
+
+async def ensure_all_members_present(guild: discord.Guild):
+    """Make sure every (non-bot) member has an XP entry in the table.
+
+    Members who joined but never sent a message — or who arrived while the bot
+    was offline — won't exist in the JSON yet. This adds any missing member at
+    0 XP so the table always covers the full roster. Existing entries are left
+    completely untouched (no XP is changed). One bulk write, no role logic, no
+    date gating.
+    """
+    data = dict(storage.get_cached(TABLE))
+    added = 0
+    for member in guild.members:
+        if member.bot:
+            continue
+        if str(member.id) not in data:
+            data[str(member.id)] = 0
+            added += 1
+
+    if not added:
+        return
+
+    storage.set_cached(TABLE, data)
+    await storage.write(guild, TABLE, data)
+    state.add_log(f"Levelling: added {added} missing member(s) to XP table at 0 XP")
+
+
 async def grant_tenure_trust(guild: discord.Guild):
     """Auto-trust members who've been in the server at least TRUST_TENURE.
 
