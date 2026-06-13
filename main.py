@@ -1,4 +1,5 @@
 import os
+import asyncio
 import discord
 from discord import app_commands
 from discord.ext import tasks
@@ -101,8 +102,9 @@ class Floppy(discord.Client):
         trust_role_id = cfg.get("trust_role")
         trust_role = guild.get_role(int(trust_role_id)) if trust_role_id else None
 
-        granted = 0
-        failed = 0
+        # Collect who needs the role first, then assign in throttled batches so
+        # a large guild on boot doesn't burst-edit roles and trip the 429 limiter.
+        needs_role = []
         for member in guild.members:
             if member.bot:
                 continue
@@ -118,15 +120,28 @@ class Floppy(discord.Client):
             if trust_role and trust_role.id in member_role_ids:
                 continue
 
-            try:
-                await member.add_roles(join_role, reason="Join-role backfill (missed while offline)")
-                granted += 1
-            except discord.Forbidden:
-                state.add_log("Join backfill: missing permissions to add join role")
-                failed += 1
-                break  # permission won't fix itself mid-loop; stop hammering the API
-            except discord.HTTPException:
-                failed += 1
+            needs_role.append(member)
+
+        granted = 0
+        failed = 0
+        stop = False
+        for i in range(0, len(needs_role), levelling.ROLE_BATCH_SIZE):
+            batch = needs_role[i:i + levelling.ROLE_BATCH_SIZE]
+            for member in batch:
+                try:
+                    await member.add_roles(join_role, reason="Join-role backfill (missed while offline)")
+                    granted += 1
+                except discord.Forbidden:
+                    state.add_log("Join backfill: missing permissions to add join role")
+                    failed += 1
+                    stop = True  # permission won't fix itself mid-loop; stop hammering the API
+                    break
+                except discord.HTTPException:
+                    failed += 1
+            if stop:
+                break
+            if i + levelling.ROLE_BATCH_SIZE < len(needs_role):
+                await asyncio.sleep(levelling.ROLE_BATCH_PAUSE)
 
         state.add_log(
             f"Join backfill reconciled '{guild.name}' — granted {granted}, failed {failed}"
