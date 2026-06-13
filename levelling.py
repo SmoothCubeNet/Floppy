@@ -1,4 +1,5 @@
 import random
+import asyncio
 from datetime import datetime, timezone, timedelta
 import discord
 import storage
@@ -288,27 +289,52 @@ async def grant_tenure_trust(guild: discord.Guild):
 
     threshold_xp = xp_for_level(TRUST_LEVEL)
     now = datetime.now(timezone.utc)
-    granted = 0
 
+    # --- Pass 1: collect everyone who qualifies, no Discord writes yet --------
+    # Doing a write per member hammers the storage channel (one message edit +
+    # backup snapshot each) and the role API, which trips Discord's 429 rate
+    # limiter. So we gather first, then persist in one shot and assign in
+    # throttled batches.
+    qualifying = []
     for member in guild.members:
         if member.bot:
             continue
-
         joined = member.joined_at
         if joined is None:
             continue  # join time unknown — skip rather than guess
         if now - joined < TRUST_TENURE:
             continue
-
         if get_user_xp(member.id) >= threshold_xp:
             continue  # already at/above trust level — nothing to top up
+        qualifying.append(member)
 
-        await _set_user_xp(guild, member.id, threshold_xp)
-        await apply_trust_role(member, cfg)
-        granted += 1
+    if not qualifying:
+        return
 
-    if granted:
-        state.add_log(f"Levelling: tenure trust granted to {granted} member(s)")
+    # --- Pass 2: one bulk XP write for the whole batch ------------------------
+    # Mutate the cache for every qualifying member, then flush ONCE. This turns
+    # N storage writes into a single message edit.
+    data = dict(storage.get_cached(TABLE))
+    for member in qualifying:
+        data[str(member.id)] = threshold_xp
+    storage.set_cached(TABLE, data)
+    await storage.write(guild, TABLE, data)
+
+    # --- Pass 3: assign roles in throttled batches ---------------------------
+    # Role edits are unavoidable per-member Discord calls, so chunk them with a
+    # short pause between chunks to stay comfortably under the rate limit.
+    BATCH_SIZE = 10
+    BATCH_PAUSE = 2.0  # seconds between batches
+    granted = 0
+    for i in range(0, len(qualifying), BATCH_SIZE):
+        batch = qualifying[i:i + BATCH_SIZE]
+        for member in batch:
+            await apply_trust_role(member, cfg)
+            granted += 1
+        if i + BATCH_SIZE < len(qualifying):
+            await asyncio.sleep(BATCH_PAUSE)
+
+    state.add_log(f"Levelling: tenure trust granted to {granted} member(s)")
 
 
 async def _announce_level_up(message: discord.Message, new_level: int, total_xp: int, level_channel_id, member=None):
