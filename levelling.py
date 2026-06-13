@@ -1,8 +1,13 @@
 import random
+from datetime import datetime, timezone, timedelta
 import discord
 import storage
 import state
 import config
+
+# Members who have been in the server at least this long are auto-trusted by
+# being topped up to the trust level's XP (see grant_tenure_trust).
+TRUST_TENURE = timedelta(days=7)
 
 # ---------------------------------------------------------------------------
 # XP formula: 5n² + 50n + 100
@@ -259,6 +264,51 @@ async def backfill_trust_roles(guild: discord.Guild):
     state.add_log(
         f"Levelling: backfill reconciled trust role — added {added}, removed {removed}"
     )
+
+
+async def grant_tenure_trust(guild: discord.Guild):
+    """Auto-trust members who've been in the server at least TRUST_TENURE.
+
+    Rather than tracking trust separately, this simply tops a qualifying member
+    up to the trust level's XP threshold (if they're below it), which makes them
+    qualify under all the existing level-based trust logic. We never lower
+    anyone's XP here — high earners keep their real XP untouched — and we never
+    remove the role: revocation stays governed purely by the XP rules elsewhere,
+    so a member dropping below the threshold is still handled as before.
+    """
+    cfg = config.load()
+    trust_role_id = cfg.get("trust_role")
+    if not trust_role_id:
+        return
+
+    trust_role = guild.get_role(int(trust_role_id))
+    if trust_role is None:
+        state.add_log("Levelling: tenure trust skipped — trust role not found in guild")
+        return
+
+    threshold_xp = xp_for_level(TRUST_LEVEL)
+    now = datetime.now(timezone.utc)
+    granted = 0
+
+    for member in guild.members:
+        if member.bot:
+            continue
+
+        joined = member.joined_at
+        if joined is None:
+            continue  # join time unknown — skip rather than guess
+        if now - joined < TRUST_TENURE:
+            continue
+
+        if get_user_xp(member.id) >= threshold_xp:
+            continue  # already at/above trust level — nothing to top up
+
+        await _set_user_xp(guild, member.id, threshold_xp)
+        await apply_trust_role(member, cfg)
+        granted += 1
+
+    if granted:
+        state.add_log(f"Levelling: tenure trust granted to {granted} member(s)")
 
 
 async def _announce_level_up(message: discord.Message, new_level: int, total_xp: int, level_channel_id, member=None):
