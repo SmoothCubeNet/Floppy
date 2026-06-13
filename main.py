@@ -51,6 +51,7 @@ class Floppy(discord.Client):
             self.add_view(RestoreBackupButton(table))
         self.cycle_status.start()
         self.update_member_count_task.start()
+        self.tenure_trust_task.start()
 
     async def update_member_count(self, guild):
         cfg = config.load()
@@ -140,6 +141,18 @@ class Floppy(discord.Client):
     async def before_member_count(self):
         await self.wait_until_ready()
 
+    @tasks.loop(hours=6)
+    async def tenure_trust_task(self):
+        for guild in self.guilds:
+            try:
+                await levelling.grant_tenure_trust(guild)
+            except Exception as e:
+                state.add_log(f"Tenure trust task failed for {guild.name} (non-fatal): {e}")
+
+    @tenure_trust_task.before_loop
+    async def before_tenure_trust(self):
+        await self.wait_until_ready()
+
     @tasks.loop(seconds=600)
     async def cycle_status(self):
         await self.change_presence(activity=discord.CustomActivity(name=next(STATUSES)))
@@ -183,6 +196,10 @@ class Floppy(discord.Client):
             try:
                 await storage.load_all(guild)
                 await levelling.backfill_trust_roles(guild)
+                # Top up anyone past the tenure threshold to the trust level BEFORE
+                # the join-role backfill, so newly-trusted members correctly shed
+                # the join role in the same pass as level-10 members.
+                await levelling.grant_tenure_trust(guild)
                 # Reconcile join roles AFTER trust roles: trust backfill strips the
                 # join role from level-10+ members, so running join-backfill second
                 # means it correctly skips them instead of re-adding a role they shed.
