@@ -40,6 +40,33 @@ TRUST_LEVEL = 5
 
 TABLE = "levelling"
 
+# ---------------------------------------------------------------------------
+# Rate-limit-friendly batching
+# ---------------------------------------------------------------------------
+# Anything that fires a Discord API call per-member across the whole guild
+# (role edits, etc.) must be chunked with a pause between chunks, or Discord's
+# 429 rate limiter trips. Tune these two knobs in one place.
+ROLE_BATCH_SIZE = 10
+ROLE_BATCH_PAUSE = 2.0  # seconds between batches
+
+
+async def _apply_in_batches(items, action):
+    """Run an async `action(item)` over `items`, chunked and throttled.
+
+    Returns the number of items processed. Use for any per-member Discord call
+    over a large set so we never burst past the rate limit.
+    """
+    done = 0
+    for i in range(0, len(items), ROLE_BATCH_SIZE):
+        chunk = items[i:i + ROLE_BATCH_SIZE]
+        for item in chunk:
+            await action(item)
+            done += 1
+        if i + ROLE_BATCH_SIZE < len(items):
+            await asyncio.sleep(ROLE_BATCH_PAUSE)
+    return done
+
+
 # In-memory cooldown tracker: {user_id: last_granted_monotonic_time}
 _cooldowns: dict[int, float] = {}
 
@@ -245,8 +272,10 @@ async def backfill_trust_roles(guild: discord.Guild):
 
     xp_data = storage.get_cached(TABLE)
 
-    added = 0
-    removed = 0
+    # Collect the role changes first, then apply them in throttled batches so a
+    # large guild on boot doesn't burst-edit roles and hit the rate limiter.
+    to_add = []
+    to_remove = []
     for member in guild.members:
         if member.bot:
             continue
@@ -256,11 +285,12 @@ async def backfill_trust_roles(guild: discord.Guild):
         has_role = trust_role.id in {r.id for r in member.roles}
 
         if qualifies and not has_role:
-            await apply_trust_role(member, cfg)
-            added += 1
+            to_add.append(member)
         elif not qualifies and has_role:
-            await revoke_trust_role(member, cfg)
-            removed += 1
+            to_remove.append(member)
+
+    added = await _apply_in_batches(to_add, lambda m: apply_trust_role(m, cfg))
+    removed = await _apply_in_batches(to_remove, lambda m: revoke_trust_role(m, cfg))
 
     state.add_log(
         f"Levelling: backfill reconciled trust role — added {added}, removed {removed}"
@@ -322,17 +352,8 @@ async def grant_tenure_trust(guild: discord.Guild):
 
     # --- Pass 3: assign roles in throttled batches ---------------------------
     # Role edits are unavoidable per-member Discord calls, so chunk them with a
-    # short pause between chunks to stay comfortably under the rate limit.
-    BATCH_SIZE = 10
-    BATCH_PAUSE = 2.0  # seconds between batches
-    granted = 0
-    for i in range(0, len(qualifying), BATCH_SIZE):
-        batch = qualifying[i:i + BATCH_SIZE]
-        for member in batch:
-            await apply_trust_role(member, cfg)
-            granted += 1
-        if i + BATCH_SIZE < len(qualifying):
-            await asyncio.sleep(BATCH_PAUSE)
+    # pause between chunks to stay comfortably under the rate limit.
+    granted = await _apply_in_batches(qualifying, lambda m: apply_trust_role(m, cfg))
 
     state.add_log(f"Levelling: tenure trust granted to {granted} member(s)")
 
