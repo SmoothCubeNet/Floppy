@@ -46,8 +46,11 @@ TABLE = "levelling"
 # Anything that fires a Discord API call per-member across the whole guild
 # (role edits, etc.) must be chunked with a pause between chunks, or Discord's
 # 429 rate limiter trips. Tune these two knobs in one place.
-ROLE_BATCH_SIZE = 10
-ROLE_BATCH_PAUSE = 2.0  # seconds between batches
+# At 25 per 0.75s that's ~33 edits/sec — well under Discord's global ceiling,
+# while discord.py's own backoff absorbs any incidental 429. A ~250-member
+# first-time reconcile finishes in roughly 8s of pauses instead of ~50s.
+ROLE_BATCH_SIZE = 25
+ROLE_BATCH_PAUSE = 0.75  # seconds between batches
 
 
 async def _apply_in_batches(items, action):
