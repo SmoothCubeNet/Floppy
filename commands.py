@@ -200,3 +200,16 @@ def register(tree: app_commands.CommandTree, guild: discord.Object):
         embed.add_field(name="Progress", value=f"{xp_into}/{xp_needed} XP", inline=False)
         embed.set_thumbnail(url=member.display_avatar.url)
         await interaction.followup.send(embed=embed)
+
+    @tree.command(name="staff", description="Open the staff control panel", guild=guild)
+    async def staff(interaction: discord.Interaction):
+        import staff_panel
+        if not staff_panel.is_staff(interaction) and not is_admin(interaction.user):
+            await interaction.response.send_message(
+                "❌ Only staff can use this command.", ephemeral=True
+            )
+            return
+        embed = staff_panel.panel_embed()
+        await interaction.response.send_message(
+            embed=embed, view=staff_panel.StaffPanelView(), ephemeral=True
+        )
