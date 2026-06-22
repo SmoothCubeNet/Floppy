@@ -47,6 +47,8 @@ class Floppy(discord.Client):
     async def setup_hook(self):
         self.add_view(OpenTicketView())
         self.add_view(TicketPanelView())
+        from staff_panel import StaffPanelView
+        self.add_view(StaffPanelView())
         # Register one persistent RestoreBackupButton view per known table
         for table in KNOWN_TABLES:
             self.add_view(RestoreBackupButton(table))
