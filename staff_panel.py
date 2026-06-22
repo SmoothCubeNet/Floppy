@@ -14,7 +14,9 @@ working after a bot restart. They're registered in main.py's setup_hook.
 """
 
 import discord
+from datetime import timedelta
 import config
+import levelling
 import warns
 
 PANEL_COLOR = 0x5865f2
@@ -44,6 +46,21 @@ async def _guard(interaction: discord.Interaction) -> bool:
     return False
 
 
+def is_admin(interaction: discord.Interaction) -> bool:
+    member = interaction.user
+    return bool(getattr(member, "guild_permissions", None) and member.guild_permissions.administrator)
+
+
+async def _guard_admin(interaction: discord.Interaction) -> bool:
+    """Block non-admins. Returns True if allowed."""
+    if is_admin(interaction):
+        return True
+    await interaction.response.send_message(
+        "❌ Only admins can use this.", ephemeral=True
+    )
+    return False
+
+
 def panel_embed() -> discord.Embed:
     e = discord.Embed(
         title="🛠️ Staff Panel",
@@ -51,6 +68,8 @@ def panel_embed() -> discord.Embed:
             "Pick an action below.\n\n"
             "⚠️ **Warn** — warn a member (stored permanently)\n"
             "📋 **View Warnings** — see a member's warning history\n"
+            "🗑️ **Purge** — delete messages from a given ID up to now\n"
+            "📈 **Set Level** — set a member's level (admin only)\n"
             "🏓 **Ping** — check the bot's latency"
         ),
         color=PANEL_COLOR,
@@ -90,6 +109,28 @@ class StaffPanelView(discord.ui.View):
         await interaction.response.send_message(
             "Select the member to look up:",
             view=ViewWarnsMemberSelectView(),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Purge", style=discord.ButtonStyle.danger, emoji="🗑️",
+        custom_id="staff:purge",
+    )
+    async def purge_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await _guard(interaction):
+            return
+        await interaction.response.send_modal(PurgeModal(interaction.channel))
+
+    @discord.ui.button(
+        label="Set Level", style=discord.ButtonStyle.secondary, emoji="📈",
+        custom_id="staff:setlevel",
+    )
+    async def setlevel_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await _guard_admin(interaction):
+            return
+        await interaction.response.send_message(
+            "Select the member to update:",
+            view=SetLevelMemberSelectView(),
             ephemeral=True,
         )
 
@@ -234,3 +275,146 @@ class ViewWarnsMemberSelectView(discord.ui.View):
         embed.set_footer(text=f"{len(user_warnings)} total")
         embed.set_thumbnail(url=member.display_avatar.url)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# ---------------------------------------------------------------------------
+# Purge flow: modal asks for a message ID, deletes from there up to now
+# ---------------------------------------------------------------------------
+
+class PurgeModal(discord.ui.Modal, title="Purge Messages"):
+    message_id = discord.ui.TextInput(
+        label="Oldest message ID to delete",
+        placeholder="Right-click a message → Copy Message ID",
+        max_length=30,
+    )
+
+    def __init__(self, channel: discord.TextChannel):
+        super().__init__()
+        self.channel = channel
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not await _guard(interaction):
+            return
+
+        try:
+            after_id = int(self.message_id.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ That doesn't look like a valid message ID.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            anchor = await self.channel.fetch_message(after_id)
+        except discord.NotFound:
+            await interaction.followup.send(
+                "❌ Couldn't find that message in this channel.", ephemeral=True
+            )
+            return
+
+        to_delete = [anchor]
+        async for msg in self.channel.history(limit=None, after=anchor, oldest_first=True):
+            to_delete.append(msg)
+
+        if not to_delete:
+            await interaction.followup.send("Nothing to delete.", ephemeral=True)
+            return
+
+        cutoff = discord.utils.utcnow() - timedelta(days=14)
+        bulk = [m for m in to_delete if m.created_at > cutoff]
+        slow = [m for m in to_delete if m.created_at <= cutoff]
+        deleted = 0
+
+        for i in range(0, len(bulk), 100):
+            chunk = bulk[i:i + 100]
+            if len(chunk) == 1:
+                await chunk[0].delete()
+            else:
+                await self.channel.delete_messages(chunk)
+            deleted += len(chunk)
+
+        for msg in slow:
+            try:
+                await msg.delete()
+                deleted += 1
+            except discord.NotFound:
+                pass
+
+        await interaction.followup.send(
+            f"🗑️ Deleted **{deleted}** message(s).", ephemeral=True
+        )
+
+
+# ---------------------------------------------------------------------------
+# Set Level flow (admin only): member select  →  level modal  →  apply
+# ---------------------------------------------------------------------------
+
+class SetLevelMemberSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+
+    @discord.ui.select(
+        cls=discord.ui.UserSelect,
+        placeholder="Choose a member to update…",
+        min_values=1,
+        max_values=1,
+    )
+    async def pick(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
+        if not await _guard_admin(interaction):
+            return
+        await interaction.response.send_modal(SetLevelModal(select.values[0]))
+
+
+class SetLevelModal(discord.ui.Modal, title="Set Level"):
+    level = discord.ui.TextInput(
+        label="Level",
+        placeholder="The level to set them to (e.g. 5)",
+        max_length=4,
+    )
+
+    def __init__(self, member: discord.Member):
+        super().__init__()
+        self.member = member
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not await _guard_admin(interaction):
+            return
+
+        try:
+            target_level = int(self.level.value.strip())
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ That doesn't look like a valid number.", ephemeral=True
+            )
+            return
+
+        if target_level < 0:
+            await interaction.response.send_message(
+                "❌ Level can't be negative.", ephemeral=True
+            )
+            return
+
+        # Set XP to the minimum required for the requested level (1 XP past the
+        # threshold so level_for_xp lands exactly on `level`); level 0 -> 1 XP.
+        new_xp = (levelling.xp_for_level(target_level) + 1) if target_level > 0 else 1
+
+        await interaction.response.defer(ephemeral=True)
+
+        cfg = config.load()
+        await levelling._set_user_xp(interaction.guild, self.member.id, new_xp)
+
+        # Keep the trust role in sync with the new value
+        if levelling.level_for_xp(new_xp) >= levelling.TRUST_LEVEL:
+            await levelling.apply_trust_role(self.member, cfg)
+        else:
+            await levelling.revoke_trust_role(self.member, cfg)
+
+        lv, xp_into, xp_needed = levelling.xp_progress(new_xp)
+        embed = discord.Embed(title=f"✅ Updated {self.member.display_name}", color=0x5865f2)
+        embed.add_field(name="Level", value=str(lv), inline=True)
+        embed.add_field(name="Total XP", value=str(new_xp), inline=True)
+        embed.add_field(name="Progress", value=f"{xp_into}/{xp_needed} XP", inline=False)
+        embed.set_thumbnail(url=self.member.display_avatar.url)
+        await interaction.followup.send(embed=embed, ephemeral=True)
