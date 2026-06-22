@@ -17,7 +17,7 @@ STORAGE_CHANNEL_NAME = "floppystorage"
 BACKUP_CHANNEL_NAME  = "floppystoragebackup"
 
 # Tables that should always exist, even before any data is written.
-KNOWN_TABLES = ["levelling"]
+KNOWN_TABLES = ["levelling", "warnings"]
 
 # In-memory cache: { "levelling": { "user_id": xp, ... }, ... }
 _cache: dict[str, dict] = {}
