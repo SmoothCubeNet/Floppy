@@ -1,6 +1,5 @@
 import discord
 from discord import app_commands
-from datetime import timedelta
 import config
 import levelling
 
@@ -33,58 +32,6 @@ async def enforce_commands_channel(interaction: discord.Interaction) -> bool:
 
 def register(tree: app_commands.CommandTree, guild: discord.Object):
     """Register all commands onto an existing tree for a specific guild."""
-
-    @tree.command(name="ping", description="Check the bot's latency", guild=guild)
-    async def ping(interaction: discord.Interaction):
-        if not await enforce_commands_channel(interaction):
-            return
-        latency = round(interaction.client.latency * 1000)
-        await interaction.response.send_message(f"🏓 Pong! Latency is **{latency}ms**")
-
-    @tree.command(name="purge", description="Delete messages from a given message ID up to now", guild=guild)
-    @app_commands.describe(message_id="The ID of the oldest message to delete")
-    async def purge(interaction: discord.Interaction, message_id: str):
-        cfg = config.load()
-        staff_role_ids = cfg.get("ticket_staff_roles", [])
-        is_staff = any(str(r.id) in [str(x) for x in staff_role_ids] for r in interaction.user.roles)
-        if not is_staff:
-            await interaction.response.send_message("❌ Only staff can use this command.", ephemeral=True)
-            return
-        try:
-            after_id = int(message_id)
-        except ValueError:
-            await interaction.response.send_message("❌ That doesn't look like a valid message ID.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
-        try:
-            anchor = await interaction.channel.fetch_message(after_id)
-        except discord.NotFound:
-            await interaction.followup.send("❌ Couldn't find that message in this channel.", ephemeral=True)
-            return
-        to_delete = [anchor]
-        async for msg in interaction.channel.history(limit=None, after=anchor, oldest_first=True):
-            to_delete.append(msg)
-        if not to_delete:
-            await interaction.followup.send("Nothing to delete.", ephemeral=True)
-            return
-        cutoff = discord.utils.utcnow() - timedelta(days=14)
-        bulk = [m for m in to_delete if m.created_at > cutoff]
-        slow = [m for m in to_delete if m.created_at <= cutoff]
-        deleted = 0
-        for i in range(0, len(bulk), 100):
-            chunk = bulk[i:i + 100]
-            if len(chunk) == 1:
-                await chunk[0].delete()
-            else:
-                await interaction.channel.delete_messages(chunk)
-            deleted += len(chunk)
-        for msg in slow:
-            try:
-                await msg.delete()
-                deleted += 1
-            except discord.NotFound:
-                pass
-        await interaction.followup.send(f"🗑️ Deleted **{deleted}** message(s).", ephemeral=True)
 
     @tree.command(name="level", description="Check your (or another member's) XP and level", guild=guild)
     @app_commands.describe(member="The member to check (defaults to you)")
@@ -155,51 +102,6 @@ def register(tree: app_commands.CommandTree, guild: discord.Object):
         embed.set_footer(text=f"{len(sorted_users)} members ranked")
 
         await interaction.response.send_message(embed=embed)
-
-    @tree.command(name="setlevel", description="(Admin) Set a member's level", guild=guild)
-    @app_commands.describe(
-        member="The member to update",
-        level="The level to set them to",
-    )
-    async def setlevel(
-        interaction: discord.Interaction,
-        member: discord.Member,
-        level: int,
-    ):
-        if not is_admin(interaction.user):
-            await interaction.response.send_message(
-                "❌ Only admins can use this command.", ephemeral=True
-            )
-            return
-
-        if level < 0:
-            await interaction.response.send_message(
-                "❌ Level can't be negative.", ephemeral=True
-            )
-            return
-
-        # Set XP to the minimum required for the requested level (1 XP past the
-        # threshold so level_for_xp lands exactly on `level`); level 0 -> 1 XP.
-        new_xp = (levelling.xp_for_level(level) + 1) if level > 0 else 1
-
-        await interaction.response.defer()
-
-        cfg = config.load()
-        await levelling._set_user_xp(interaction.guild, member.id, new_xp)
-
-        # Keep the trust role in sync with the new value
-        if levelling.level_for_xp(new_xp) >= levelling.TRUST_LEVEL:
-            await levelling.apply_trust_role(member, cfg)
-        else:
-            await levelling.revoke_trust_role(member, cfg)
-
-        lv, xp_into, xp_needed = levelling.xp_progress(new_xp)
-        embed = discord.Embed(title=f"✅ Updated {member.display_name}", color=0x5865f2)
-        embed.add_field(name="Level", value=str(lv), inline=True)
-        embed.add_field(name="Total XP", value=str(new_xp), inline=True)
-        embed.add_field(name="Progress", value=f"{xp_into}/{xp_needed} XP", inline=False)
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await interaction.followup.send(embed=embed)
 
     @tree.command(name="staff", description="Open the staff control panel", guild=guild)
     async def staff(interaction: discord.Interaction):
