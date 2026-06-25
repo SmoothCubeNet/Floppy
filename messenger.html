@@ -45,7 +45,16 @@
     .ch-row.active { background: var(--surface3); color: white; }
     .ch-icon { font-size: 1rem; flex-shrink: 0; opacity: 0.7; width: 18px; text-align: center; font-style: normal; }
     .ch-name { flex: 1; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-    .ch-row.voice { opacity: 0.7; }
+    .ch-row.voice { opacity: 0.85; }
+    .ch-row.voice.connected { color: var(--text); background: rgba(67,181,129,0.12); }
+    .ch-row.voice.connected .ch-icon { opacity: 1; }
+    .voice-dot { width: 8px; height: 8px; border-radius: 50%; background: #43b581; flex-shrink: 0; margin-left: auto; box-shadow: 0 0 6px #43b581; }
+    .voice-bar { display: none; align-items: center; gap: 8px; padding: 8px 12px; margin: 4px 8px; border-radius: 6px; background: rgba(67,181,129,0.12); border: 1px solid rgba(67,181,129,0.3); font-size: 0.85rem; color: var(--text); }
+    .voice-bar.active { display: flex; }
+    .voice-bar .vb-icon { font-size: 1rem; }
+    .voice-bar .vb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .voice-bar .vb-leave { background: #f04747; border: none; color: white; cursor: pointer; font-size: 0.78rem; font-weight: 600; padding: 4px 10px; border-radius: 4px; }
+    .voice-bar .vb-leave:hover { background: #d63c3c; }
     .ch-row.disabled { cursor: default; }
     .ch-row.disabled:hover { background: transparent; color: var(--muted); }
 
@@ -216,6 +225,11 @@
         <div style="padding:16px;color:var(--muted);font-size:0.85rem">Loading channels…</div>
       </div>
     </div>
+    <div id="voice-bar" class="voice-bar">
+      <span class="vb-icon">🔊</span>
+      <span class="vb-name" id="voice-bar-name">Connected</span>
+      <button class="vb-leave" onclick="leaveVoice()">Leave</button>
+    </div>
     <div id="user-bar">
       <div class="ubar-avatar" id="ubar-avatar">🐟</div>
       <div style="flex:1;min-width:0">
@@ -307,6 +321,8 @@ let allMembers = [];
 let allChannels = [];
 let viewMode = 'server';
 let membersOpen = false;
+let voiceState = { connected:false, channel_id:null, channel_name:null };
+let voicePollTimer = null;
 
 const AVATAR_COLORS = ['#5865f2','#3ba55d','#faa61a','#ed4245','#9b59b6','#1abc9c','#e67e22','#e91e8c','#2980b9','#16a085'];
 const EMOJI_LIST = ['👍','👎','❤️','😂','😮','😢','🔥','🎉','✅','❌','🙏','💯','😎','🤔','👀','💀','🫡','😭','🥹','🤣','😅','🤦','🤷','💪','👏','🫶','😍','🥰','😜','🤩','😤','😡','🥺','😳','🤯','😱','🤫','🫠','🥲','😈','👾','🤖','💬','📌','📎','🔗','✨','⭐','💫','🌟','🎵','🎮','🍕','☕','🌙','☀️','⚡','💥','🎯','🏆'];
@@ -324,6 +340,8 @@ function chanIcon(type){return {text:'#',voice:'🔊',announcement:'📣',news:'
 async function init(){
   await loadGuild();
   loadMembers();
+  refreshVoiceStatus();
+  voicePollTimer=setInterval(refreshVoiceStatus,5000);
 }
 
 async function loadGuild(){
@@ -403,15 +421,62 @@ function renderServerChannels(){
 
 function channelRow(ch){
   const isActive=activeChannel&&!activeChannel.isDM&&activeChannel.id===ch.id;
-  const clickable=['text','announcement','news','forum'].includes(ch.type);
+  const isVoice=['voice','stage'].includes(ch.type);
+  const clickable=['text','announcement','news','forum'].includes(ch.type)||isVoice;
   const icon=chanIcon(ch.type);
-  const cls=['ch-row',ch.type,isActive?'active':'',!clickable?'disabled':''].filter(Boolean).join(' ');
+  const isConnected=isVoice&&voiceState.connected&&voiceState.channel_id===ch.id;
+  const cls=['ch-row',ch.type,isActive?'active':'',isConnected?'connected':'',!clickable?'disabled':''].filter(Boolean).join(' ');
   const safeTopic = (ch.topic||'').replace(/'/g,'&#39;');
-  const click = clickable ? 'onclick="selectChannel(\''+ch.id+'\',\''+esc(ch.name)+'\',\''+ch.type+'\',\''+safeTopic+'\')"' : '';
+  let click='';
+  if(isVoice){click='onclick="joinVoice(\''+ch.id+'\',\''+esc(ch.name)+'\')"';}
+  else if(clickable){click='onclick="selectChannel(\''+ch.id+'\',\''+esc(ch.name)+'\',\''+ch.type+'\',\''+safeTopic+'\')"';}
   return '<div class="'+cls+'" id="chi-'+ch.id+'" '+click+' title="'+esc(ch.name)+'">'
        + '<span class="ch-icon">'+icon+'</span>'
        + '<span class="ch-name">'+esc(ch.name)+'</span>'
+       + (isConnected?'<span class="voice-dot"></span>':'')
        + '</div>';
+}
+
+// VOICE CALLS
+async function joinVoice(id,name){
+  if(voiceState.connected&&voiceState.channel_id===id){ leaveVoice(); return; }
+  toast('Joining '+name+'…');
+  try{
+    const res=await fetch('/messenger/api/voice-join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel_id:id})});
+    const data=await res.json();
+    if(data.ok){ voiceState={connected:true,channel_id:data.channel_id,channel_name:data.channel_name}; updateVoiceUI(); toast('Joined '+name); }
+    else{ toast(data.error||'Failed to join','err'); }
+  }catch(e){ toast('Failed to join call','err'); }
+}
+
+async function leaveVoice(){
+  try{
+    const res=await fetch('/messenger/api/voice-leave',{method:'POST'});
+    const data=await res.json();
+    if(data.ok){ voiceState={connected:false,channel_id:null,channel_name:null}; updateVoiceUI(); toast('Left call'); }
+    else{ toast(data.error||'Failed to leave','err'); }
+  }catch(e){ toast('Failed to leave call','err'); }
+}
+
+async function refreshVoiceStatus(){
+  try{
+    const res=await fetch('/messenger/api/voice-status');
+    const data=await res.json();
+    const changed=voiceState.connected!==!!data.connected||voiceState.channel_id!==(data.channel_id||null);
+    voiceState={connected:!!data.connected,channel_id:data.channel_id||null,channel_name:data.channel_name||null};
+    if(changed) updateVoiceUI();
+  }catch(e){}
+}
+
+function updateVoiceUI(){
+  const bar=document.getElementById('voice-bar');
+  if(voiceState.connected){
+    bar.classList.add('active');
+    document.getElementById('voice-bar-name').textContent=voiceState.channel_name||'Connected';
+  }else{
+    bar.classList.remove('active');
+  }
+  if(viewMode==='server') renderServerChannels();
 }
 
 function toggleCat(id,header){

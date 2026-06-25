@@ -363,6 +363,78 @@ async def delete_message():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@messenger_app.route("/api/voice-status")
+async def voice_status():
+    bot = state.bot
+    if not bot:
+        return jsonify({"connected": False})
+    vc = bot.voice_clients[0] if bot.voice_clients else None
+    if vc and vc.is_connected():
+        return jsonify({
+            "connected": True,
+            "channel_id": str(vc.channel.id),
+            "channel_name": vc.channel.name,
+        })
+    return jsonify({"connected": False})
+
+
+@messenger_app.route("/api/voice-join", methods=["POST"])
+async def voice_join():
+    bot = state.bot
+    if not bot:
+        return jsonify({"ok": False, "error": "Bot not ready"}), 503
+
+    import discord as _discord
+
+    data = await request.get_json()
+    channel_id = data.get("channel_id")
+    if not channel_id:
+        return jsonify({"ok": False, "error": "Missing channel_id"}), 400
+
+    channel = bot.get_channel(int(channel_id))
+    if not channel:
+        return jsonify({"ok": False, "error": "Channel not found"}), 404
+    if not isinstance(channel, (_discord.VoiceChannel, _discord.StageChannel)):
+        return jsonify({"ok": False, "error": "Not a voice channel"}), 400
+
+    me = channel.guild.me
+    perms = channel.permissions_for(me)
+    if not perms.connect:
+        return jsonify({"ok": False, "error": "Bot lacks Connect permission in this channel"}), 403
+
+    try:
+        existing = channel.guild.voice_client
+        if existing and existing.is_connected():
+            if existing.channel.id == channel.id:
+                return jsonify({"ok": True, "channel_id": str(channel.id), "channel_name": channel.name})
+            await existing.move_to(channel)
+        else:
+            await channel.connect()
+        state.add_log(f"Messenger joined voice {channel.name}")
+        return jsonify({"ok": True, "channel_id": str(channel.id), "channel_name": channel.name})
+    except _discord.ClientException as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@messenger_app.route("/api/voice-leave", methods=["POST"])
+async def voice_leave():
+    bot = state.bot
+    if not bot:
+        return jsonify({"ok": False, "error": "Bot not ready"}), 503
+    try:
+        vc = bot.voice_clients[0] if bot.voice_clients else None
+        if not vc or not vc.is_connected():
+            return jsonify({"ok": True, "left": False})
+        name = vc.channel.name
+        await vc.disconnect(force=True)
+        state.add_log(f"Messenger left voice {name}")
+        return jsonify({"ok": True, "left": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @messenger_app.route("/api/react", methods=["POST"])
 async def react():
     bot = state.bot
