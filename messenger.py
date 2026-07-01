@@ -5,6 +5,30 @@ import state
 
 messenger_app = Blueprint('messenger', __name__)
 
+
+def serialize_embeds(msg):
+    """Convert a message's rich embeds into JSON-friendly dicts for the frontend."""
+    out = []
+    for e in msg.embeds:
+        fields = [
+            {"name": f.name, "value": f.value, "inline": bool(f.inline)}
+            for f in e.fields
+        ]
+        out.append({
+            "title": e.title or "",
+            "description": e.description or "",
+            "url": e.url or "",
+            "color": (f"#{e.color.value:06x}" if e.color else None),
+            "fields": fields,
+            "author": (e.author.name if e.author and e.author.name else ""),
+            "author_icon": (e.author.icon_url if e.author and e.author.icon_url else ""),
+            "footer": (e.footer.text if e.footer and e.footer.text else ""),
+            "footer_icon": (e.footer.icon_url if e.footer and e.footer.icon_url else ""),
+            "thumbnail": (e.thumbnail.url if e.thumbnail and e.thumbnail.url else ""),
+            "image": (e.image.url if e.image and e.image.url else ""),
+        })
+    return out
+
 # ---------------------------------------------------------------------------
 # HTML PAGE
 # ---------------------------------------------------------------------------
@@ -144,6 +168,7 @@ async def get_dm_messages(user_id):
                 "reply": None,
                 "attachments": attachments,
                 "reactions": [],
+                "embeds": serialize_embeds(msg),
             })
         messages.reverse()
         return jsonify({"ok": True, "messages": messages})
@@ -241,6 +266,7 @@ async def get_messages(channel_id):
                 "reply": reply,
                 "attachments": attachments,
                 "reactions": reactions,
+                "embeds": serialize_embeds(msg),
             })
         messages.reverse()
         return jsonify({"ok": True, "messages": messages})
