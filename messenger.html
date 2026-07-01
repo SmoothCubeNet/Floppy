@@ -109,6 +109,24 @@
     .attachment-img { margin-top: 8px; max-width: 520px; max-height: 350px; border-radius: 3px; display: block; cursor: zoom-in; }
     .attachment-file { margin-top: 8px; display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 10px 16px; font-size: 0.88rem; color: var(--text); text-decoration: none; }
     .attachment-file:hover { background: var(--surface3); }
+    .embed { margin-top: 6px; max-width: 520px; display: flex; background: var(--surface); border-radius: 4px; overflow: hidden; }
+    .embed-bar { width: 4px; flex-shrink: 0; background: var(--muted2); }
+    .embed-body { padding: 10px 14px 12px; min-width: 0; }
+    .embed-author { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 600; margin-bottom: 4px; color: var(--text); }
+    .embed-author img { width: 20px; height: 20px; border-radius: 50%; }
+    .embed-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 4px; color: var(--text); }
+    .embed-title a { color: var(--accent); text-decoration: none; }
+    .embed-desc { font-size: 0.9rem; color: var(--text); white-space: pre-wrap; word-wrap: break-word; }
+    .embed-fields { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
+    .embed-field { min-width: 0; }
+    .embed-field.inline { flex: 1 1 30%; }
+    .embed-field.block { flex: 1 1 100%; }
+    .embed-field-name { font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+    .embed-field-value { font-size: 0.85rem; color: var(--muted); white-space: pre-wrap; word-wrap: break-word; }
+    .embed-thumb { float: right; max-width: 72px; max-height: 72px; border-radius: 4px; margin: 0 0 8px 12px; }
+    .embed-image { margin-top: 8px; max-width: 100%; max-height: 300px; border-radius: 4px; display: block; cursor: zoom-in; }
+    .embed-footer { display: flex; align-items: center; gap: 6px; font-size: 0.76rem; color: var(--muted); margin-top: 8px; }
+    .embed-footer img { width: 18px; height: 18px; border-radius: 50%; }
     .reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
     .reaction { display: flex; align-items: center; gap: 5px; background: var(--surface3); border: 1px solid var(--border); border-radius: 8px; padding: 2px 8px; font-size: 0.85rem; cursor: pointer; color: var(--text); }
     .reaction:hover { background: var(--accent-dim); border-color: var(--accent); }
@@ -602,6 +620,7 @@ function buildMessage(m,cont){
   const reactions=(m.reactions||[]).length
     ? '<div class="reactions">'+m.reactions.map(r=>'<button class="reaction" onclick="addReaction(\''+m.id+'\',\''+esc(r.emoji)+'\')">'+ r.emoji +' <span class="reaction-count">'+r.count+'</span></button>').join('')+'<button class="add-reaction" onclick="openEmojiPicker(\''+m.id+'\',event)">+</button></div>'
     : '';
+  const embeds=(m.embeds||[]).map(buildEmbed).join('');
   const safeContent = (m.content||'').slice(0,80).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
   const safeAuthor = (m.author||'').replace(/'/g,"\\'");
   const actions='<div class="msg-actions">'
@@ -611,8 +630,22 @@ function buildMessage(m,cont){
     +'</div>';
   return '<div class="msg-wrapper '+(cont?'cont':'first')+'" id="msg-'+m.id+'">'+hoverTime
     +'<div class="msg-group '+(cont?'cont':'first')+'">'+avatarPart
-    +'<div class="msg-col">'+meta+reply+text+attachments+reactions+'</div>'
+    +'<div class="msg-col">'+meta+reply+text+embeds+attachments+reactions+'</div>'
     +'</div>'+actions+'</div>';
+}
+
+function buildEmbed(e){
+  const bar=e.color?`style="background:${esc(e.color)}"`:'';
+  const author=e.author?`<div class="embed-author">${e.author_icon?`<img src="${esc(e.author_icon)}">`:''}${esc(e.author)}</div>`:'';
+  const title=e.title?`<div class="embed-title">${e.url?`<a href="${esc(e.url)}" target="_blank" rel="noreferrer">${esc(e.title)}</a>`:esc(e.title)}</div>`:'';
+  const desc=e.description?`<div class="embed-desc">${linkify(esc(e.description))}</div>`:'';
+  const thumb=e.thumbnail?`<img class="embed-thumb" src="${esc(e.thumbnail)}" onclick="openLightbox('${esc(e.thumbnail)}')">`:'';
+  const fields=(e.fields||[]).length
+    ? '<div class="embed-fields">'+e.fields.map(f=>`<div class="embed-field ${f.inline?'inline':'block'}"><div class="embed-field-name">${esc(f.name)}</div><div class="embed-field-value">${linkify(esc(f.value))}</div></div>`).join('')+'</div>'
+    : '';
+  const image=e.image?`<img class="embed-image" src="${esc(e.image)}" onclick="openLightbox('${esc(e.image)}')">`:'';
+  const footer=e.footer?`<div class="embed-footer">${e.footer_icon?`<img src="${esc(e.footer_icon)}">`:''}${esc(e.footer)}</div>`:'';
+  return `<div class="embed"><div class="embed-bar" ${bar}></div><div class="embed-body">${thumb}${author}${title}${desc}${fields}${image}${footer}</div></div>`;
 }
 
 function linkify(s){return s.replace(/(https?:\/\/[^\s<>"]+)/g,'<a href="$1" target="_blank" rel="noreferrer">$1</a>');}
