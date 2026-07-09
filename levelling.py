@@ -6,8 +6,6 @@ import storage
 import state
 import config
 
-# Members who have been in the server at least this long are auto-trusted by
-# being topped up to the trust level's XP (see grant_tenure_trust).
 TRUST_TENURE = timedelta(days=7)
 
 # ---------------------------------------------------------------------------
@@ -16,41 +14,13 @@ TRUST_TENURE = timedelta(days=7)
 
 XP_PER_MESSAGE_MIN = 15
 XP_PER_MESSAGE_MAX = 25
-XP_COOLDOWN_SECONDS = 60  # one XP grant per user per minute
-
-# --- Reply / engagement tuning ---------------------------------------------
-# Philosophy: the social signal should come from being responded TO (hard to
-# fake), not from the act of replying (trivial to fake by spamming the reply
-# button). So the reply bonus is a gentle nudge, while engagement credit — XP
-# for being replied to — carries more of the weight.
-#
-# Modeled against the 5n²+50n+100 curve: at 1.15x a reply-everything user reaches
-# level 10 only ~0.2 days faster than a plain chatter, so plain text never feels
-# pointless and nobody is forced to reply to everything to stay competitive.
-REPLY_BONUS_MULTIPLIER = 1.15  # replier's grant scaled by this when replying
-# Flat XP to the person being replied to, gated by THEIR own cooldown. Capped at
-# ~40% of an active chatter's rate, so popularity helps but can't out-earn real
-# participation, and can't be farmed via back-and-forth (cooldown blocks it).
+XP_COOLDOWN_SECONDS = 60
+REPLY_BONUS_MULTIPLIER = 1.15
 ENGAGEMENT_XP = 8
-
-# The level at which a member earns the trust role (and sheds the join role).
-# Single source of truth — referenced by the live trigger, the boot-time
-# backfill, and /setlevel so they can never disagree and flip-flop roles.
 TRUST_LEVEL = 5
-
 TABLE = "levelling"
-
-# ---------------------------------------------------------------------------
-# Rate-limit-friendly batching
-# ---------------------------------------------------------------------------
-# Anything that fires a Discord API call per-member across the whole guild
-# (role edits, etc.) must be chunked with a pause between chunks, or Discord's
-# 429 rate limiter trips. Tune these two knobs in one place.
-# At 25 per 0.75s that's ~33 edits/sec — well under Discord's global ceiling,
-# while discord.py's own backoff absorbs any incidental 429. A ~250-member
-# first-time reconcile finishes in roughly 8s of pauses instead of ~50s.
 ROLE_BATCH_SIZE = 25
-ROLE_BATCH_PAUSE = 0.75  # seconds between batches
+ROLE_BATCH_PAUSE = 0.75
 
 
 async def _apply_in_batches(items, action):
@@ -69,14 +39,7 @@ async def _apply_in_batches(items, action):
             await asyncio.sleep(ROLE_BATCH_PAUSE)
     return done
 
-
-# In-memory cooldown tracker: {user_id: last_granted_monotonic_time}
 _cooldowns: dict[int, float] = {}
-
-
-# ---------------------------------------------------------------------------
-# Level math
-# ---------------------------------------------------------------------------
 
 def xp_for_level(level: int) -> int:
     """Total XP required to reach this level from 0."""
@@ -97,17 +60,12 @@ def xp_progress(total_xp: int) -> tuple[int, int, int]:
     xp_end = xp_for_level(level + 1)
     return level, total_xp - xp_start, xp_end - xp_start
 
-
-# ---------------------------------------------------------------------------
-# XP read/write (cache for reads, Discord write on change)
-# ---------------------------------------------------------------------------
-
 def get_user_xp(user_id: int) -> int:
     return storage.get_cached(TABLE).get(str(user_id), 0)
 
 
 async def _set_user_xp(guild: discord.Guild, user_id: int, xp: int):
-    data = dict(storage.get_cached(TABLE))  # copy
+    data = dict(storage.get_cached(TABLE))
     data[str(user_id)] = xp
     storage.set_cached(TABLE, data)
     await storage.write(guild, TABLE, data)
@@ -123,11 +81,6 @@ async def wipe_user(guild: discord.Guild, user_id: int):
     await storage.write(guild, TABLE, data)
     state.add_log(f"Levelling: wiped XP for user {user_id} (left server)")
 
-
-# ---------------------------------------------------------------------------
-# Core grant — called from on_message
-# ---------------------------------------------------------------------------
-
 async def handle_message(message: discord.Message):
     import time
 
@@ -137,13 +90,10 @@ async def handle_message(message: discord.Message):
     author = message.author
     now = time.monotonic()
 
-    # --- Resolve whether this is a genuine reply to ANOTHER human -----------
     replied_to = None
     ref = message.reference
     if ref is not None:
         resolved = ref.resolved if isinstance(ref.resolved, discord.Message) else None
-        # If the referenced message wasn't in cache, fetch it once. Guarded so a
-        # deleted/inaccessible parent just means "no bonus", never a crash.
         if resolved is None and ref.message_id:
             try:
                 resolved = await message.channel.fetch_message(ref.message_id)
@@ -153,21 +103,14 @@ async def handle_message(message: discord.Message):
             replied_to = resolved.author
 
     is_reply = replied_to is not None
-
-    # --- Grant XP to the message author (subject to their cooldown) ---------
     if now - _cooldowns.get(author.id, 0) >= XP_COOLDOWN_SECONDS:
         _cooldowns[author.id] = now
 
         gained = random.randint(XP_PER_MESSAGE_MIN, XP_PER_MESSAGE_MAX)
         if is_reply:
-            # Replying is direct engagement — scale the grant up.
             gained = int(gained * REPLY_BONUS_MULTIPLIER)
 
         await _grant_xp(message.guild, author, gained, cfg, message, level_channel_id)
-
-    # --- Engagement credit to the person who was replied to ----------------
-    # Gated by the replied-to user's OWN cooldown so two people can't sit and
-    # reply back-and-forth every second to pump each other's XP.
     if replied_to is not None:
         if now - _cooldowns.get(replied_to.id, 0) >= XP_COOLDOWN_SECONDS:
             _cooldowns[replied_to.id] = now
