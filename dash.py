@@ -148,6 +148,18 @@ PAGE = """
         <div class="hint">When a member reaches level 10, the join role is removed and this role is added.</div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-title">🍯 Honeypot</div>
+      <div class="field">
+        <label>Decoy channel</label>
+        <select id="honeypot_channel" onchange="markDirty()"><option value="">— none —</option></select>
+        <div class="hint">A channel real members have no reason to post in. The instant anyone sends a message here, they're isolated and everything they posted today anywhere in the server is deleted. Set this channel's permissions so it's hidden from your isolation role, and lock down other channels for that role too.</div>
+      </div>
+      <div class="field">
+        <label>Isolation role to apply</label>
+        <select id="honeypot_role" onchange="markDirty()"><option value="">— none —</option></select>
+      </div>
+    </div>
     <div class="btn-row">
       <span class="unsaved-badge" id="unsaved-roles">⚠️ Unsaved changes</span>
       <button class="btn" onclick="save()">Save Changes</button>
@@ -425,6 +437,8 @@ PAGE = """
       populateSelect('ticket_closed_category', guildData.categories, cfg.ticket_closed_category);
       populateSelect('join_role', guildData.roles, cfg.join_role);
       populateSelect('trust_role', guildData.roles, cfg.trust_role);
+      populateSelect('honeypot_channel', guildData.channels, cfg.honeypot_channel);
+      populateSelect('honeypot_role', guildData.roles, cfg.honeypot_role);
       populateSelect('member_count_channel', guildData.voice_channels, cfg.member_count_channel);
       populateSelect('level_channel', guildData.channels, cfg.level_channel);
       populateSelect('commands_channel', guildData.channels, cfg.commands_channel);
@@ -464,6 +478,8 @@ PAGE = """
       goodbye_message: document.getElementById('goodbye_message').value || null,
       join_role: document.getElementById('join_role').value || null,
       trust_role: document.getElementById('trust_role').value || null,
+      honeypot_channel: document.getElementById('honeypot_channel').value || null,
+      honeypot_role: document.getElementById('honeypot_role').value || null,
       audit_log_channel: document.getElementById('audit_log_channel').value || null,
       ticket_channel: document.getElementById('ticket_channel').value || null,
       ticket_category: document.getElementById('ticket_category').value || null,
