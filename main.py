@@ -455,9 +455,56 @@ class Floppy(discord.Client):
         if message.author.bot or not message.guild:
             return
 
+        cfg = config.load()
+
+        # === HONEYPOT ISOLATION & CLEANUP SYSTEM ===
+        honeypot_ch_id = cfg.get("honeypot_channel")
+        if honeypot_ch_id and message.channel.id == int(honeypot_ch_id):
+            member = message.author
+            guild = message.guild
+            
+            # 1. Isolate the user immediately by adding the honeypot role
+            isolation_role_id = cfg.get("honeypot_role")
+            role_added = False
+            if isolation_role_id:
+                isolation_role = guild.get_role(int(isolation_role_id))
+                if isolation_role:
+                    try:
+                        await member.add_roles(isolation_role, reason="Honeypot triggered: Isolated.")
+                        role_added = True
+                        state.add_log(f"Honeypot: Isolated {member} ({member.id}) with role.")
+                    except discord.Forbidden:
+                        state.add_log(f"Honeypot: Missing permission to assign isolation role to {member}.")
+            
+            if not role_added:
+                state.add_log(f"Honeypot: Triggered by {member}, but isolation role could not be applied.")
+
+            # 2. Delete the trigger message itself
+            try:
+                await message.delete()
+            except discord.Forbidden:
+                pass
+
+            # 3. Purge everything they posted in the last 24 hours across the server
+            # We run this as a background task so it doesn't freeze the bot
+            asyncio.create_task(self.purge_member_recent_messages(guild, member))
+
+            # 4. Log the isolation event
+            emb = make_embed(
+                RED,
+                "🚨 Honeypot Isolated User!",
+                description=f"{member.mention} has been isolated and their recent posts are being deleted.",
+                fields=[
+                    ("User", f"{member} ({member.id})", True),
+                    ("Action taken", f"Assigned isolation role & queued message purge.", True),
+                ]
+            )
+            await self.log(guild, emb)
+            return  # Stop executing anything else for this message
+        # ============================================
+
         # Delete any plain message in the commands channel — slash commands never
         # trigger on_message, so every message here is a non-command and should go.
-        cfg = config.load()
         commands_ch_id = commands.get_commands_channel_id(cfg)
         if commands_ch_id and message.channel.id == commands_ch_id:
             try:
@@ -469,6 +516,34 @@ class Floppy(discord.Client):
         await self.handle_verify_message(message, cfg)
         await handle_ticket_mention(message)
         await levelling.handle_message(message)
+
+    async def purge_member_recent_messages(self, guild: discord.Guild, member: discord.Member):
+        """Searches all text channels in the guild and deletes messages from this member sent in the last 24 hours."""
+        from datetime import timedelta
+        day_ago = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted_count = 0
+
+        state.add_log(f"Honeypot: Starting deep message purge for {member}...")
+
+        for channel in guild.text_channels:
+            # Check if bot can actually read and delete messages in this channel
+            perms = channel.permissions_for(guild.me)
+            if not perms.read_messages or not perms.manage_messages:
+                continue
+
+            try:
+                # We fetch history back to 24 hours ago
+                async for msg in channel.history(limit=200, after=day_ago):
+                    if msg.author.id == member.id:
+                        try:
+                            await msg.delete()
+                            deleted_count += 1
+                        except discord.HTTPException:
+                            pass
+            except Exception as e:
+                state.add_log(f"Honeypot purge: Error scanning #{channel.name} — {e}")
+
+        state.add_log(f"Honeypot: Completed purge for {member}. Deleted {deleted_count} messages.")
 
 
 def get_bot():
