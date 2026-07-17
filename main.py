@@ -457,7 +457,7 @@ class Floppy(discord.Client):
 
         cfg = config.load()
 
-        # === HONEYPOT ISOLATION & CLEANUP SYSTEM ===
+        # === HONEYPOT SYSTEM ===
         honeypot_ch_id = cfg.get("honeypot_channel")
         if honeypot_ch_id and message.channel.id == int(honeypot_ch_id):
             member = message.author
@@ -485,23 +485,22 @@ class Floppy(discord.Client):
             except discord.Forbidden:
                 pass
 
-            # 3. Purge everything they posted in the last 24 hours across the server
-            # We run this as a background task so it doesn't freeze the bot
+            # 3. Purge everything they posted in the LAST MINUTE across the server
             asyncio.create_task(self.purge_member_recent_messages(guild, member))
 
-            # 4. Log the isolation event
+            # 4. Log the action to your audit channel
             emb = make_embed(
                 RED,
                 "🚨 Honeypot Isolated User!",
-                description=f"{member.mention} has been isolated and their recent posts are being deleted.",
+                description=f"{member.mention} was isolated and their messages from the last minute across all channels are being deleted.",
                 fields=[
                     ("User", f"{member} ({member.id})", True),
-                    ("Action taken", f"Assigned isolation role & queued message purge.", True),
+                    ("Action taken", "Assigned isolation role & queued server-wide message purge (last 60s).", True),
                 ]
             )
             await self.log(guild, emb)
-            return  # Stop executing anything else for this message
-        # ============================================
+            return  # Stop processing further for this message
+        # =======================
 
         # Delete any plain message in the commands channel — slash commands never
         # trigger on_message, so every message here is a non-command and should go.
@@ -518,22 +517,24 @@ class Floppy(discord.Client):
         await levelling.handle_message(message)
 
     async def purge_member_recent_messages(self, guild: discord.Guild, member: discord.Member):
-        """Searches all text channels in the guild and deletes messages from this member sent in the last 24 hours."""
+        """Searches all text channels in the guild and deletes messages from this member sent in the last 60 seconds."""
         from datetime import timedelta
-        day_ago = datetime.now(timezone.utc) - timedelta(days=1)
+        # Calculate time cutoff (1 minute ago)
+        one_minute_ago = datetime.now(timezone.utc) - timedelta(minutes=1)
         deleted_count = 0
 
-        state.add_log(f"Honeypot: Starting deep message purge for {member}...")
+        state.add_log(f"Honeypot: Starting 1-minute message purge for {member}...")
 
         for channel in guild.text_channels:
-            # Check if bot can actually read and delete messages in this channel
+            # Check if the bot has permission to read history and manage messages in this channel
             perms = channel.permissions_for(guild.me)
             if not perms.read_messages or not perms.manage_messages:
                 continue
 
             try:
-                # We fetch history back to 24 hours ago
-                async for msg in channel.history(limit=200, after=day_ago):
+                # Retrieve the channel's history starting from 1 minute ago
+                # (We keep limit=150 in case they tried to mass spam a channel in that minute)
+                async for msg in channel.history(limit=150, after=one_minute_ago):
                     if msg.author.id == member.id:
                         try:
                             await msg.delete()
@@ -543,7 +544,7 @@ class Floppy(discord.Client):
             except Exception as e:
                 state.add_log(f"Honeypot purge: Error scanning #{channel.name} — {e}")
 
-        state.add_log(f"Honeypot: Completed purge for {member}. Deleted {deleted_count} messages.")
+        state.add_log(f"Honeypot: Completed 1-minute purge for {member}. Deleted {deleted_count} messages.")
 
 
 def get_bot():
